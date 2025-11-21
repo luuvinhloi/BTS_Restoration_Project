@@ -1,0 +1,21 @@
+cow_id,base_id,base_name,type,lat,lon,coverage_radius_m,power_kw,speed_kmh,endurance_hr,cost_vnd,assigned_region
+COW_001,BASE_1,Hue City,heavy,16.4619,107.5889,4000,40,50,72,20000000.0,Hue City
+COW_002,BASE_1,Hue City,heavy,16.4619,107.5889,4000,40,50,72,20000000.0,Hue City
+COW_003,BASE_1,Hue City,standard,16.4619,107.5889,2000,20,55,48,15000000.0,Hue City
+COW_004,BASE_1,Hue City,standard,16.4619,107.5889,2000,20,55,48,15000000.0,Hue City
+COW_005,BASE_1,Hue City,small,16.4619,107.5889,1000,10,60,48,10000000.0,Hue City
+COW_006,BASE_1,Hue City,small,16.4619,107.5889,1000,10,60,48,10000000.0,Hue City
+COW_007,BASE_2,A Luoi District,heavy,16.2735,107.2314,4000,40,50,72,20000000.0,A Luoi District
+COW_008,BASE_2,A Luoi District,standard,16.2735,107.2314,2000,20,55,48,15000000.0,A Luoi District
+COW_009,BASE_2,A Luoi District,standard,16.2735,107.2314,2000,20,55,48,15000000.0,A Luoi District
+COW_010,BASE_2,A Luoi District,small,16.2735,107.2314,1000,10,60,48,10000000.0,A Luoi District
+COW_011,BASE_2,A Luoi District,small,16.2735,107.2314,1000,10,60,48,10000000.0,A Luoi District
+COW_012,BASE_3,Phong Dien District,heavy,16.5711,107.3825,4000,40,50,72,20000000.0,Phong Dien District
+COW_013,BASE_3,Phong Dien District,standard,16.5711,107.3825,2000,20,55,48,15000000.0,Phong Dien District
+COW_014,BASE_3,Phong Dien District,standard,16.5711,107.3825,2000,20,55,48,15000000.0,Phong Dien District
+COW_015,BASE_4,Phu Loc District,heavy,16.1604,107.698,4000,40,50,72,20000000.0,Phu Loc District
+COW_016,BASE_4,Phu Loc District,standard,16.1604,107.698,2000,20,55,48,15000000.0,Phu Loc District
+COW_017,BASE_4,Phu Loc District,standard,16.1604,107.698,2000,20,55,48,15000000.0,Phu Loc District
+COW_018,BASE_4,Phu Loc District,small,16.1604,107.698,1000,10,60,48,10000000.0,Phu Loc District
+COW_019,BASE_5,Quang Dien District,heavy,16.585,107.4884,4000,40,50,72,20000000.0,Quang Dien District
+COW_020,BASE_5,Quang Dien District,standard,16.585,107.4884,2000,20,55,48,15000000.0,Quang Dien District

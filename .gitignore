@@ -1,0 +1,50 @@
+# Python cache, compiled & temporary files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.pyo
+*.pyd
+
+# Virtual environment folders
+venv/
+.env/
+env/
+.venv/
+
+# Ignore notebooks and logs folders
+notebooks/
+logs/
+
+# Output files - ignore everything in outputs by default
+outputs/*
+
+# Keep specific subfolders inside outputs
+!outputs/logs/
+!outputs/maps/
+!outputs/results/
+
+# Ignore heavy binary/data file types everywhere by default
+*.npy
+*.npz
+*.geojson
+*.tif
+*.aux
+*.xml
+*.tif.aux.xml
+
+# Jupyter notebooks checkpoints
+.ipynb_checkpoints/
+
+# IDE / Editor specific
+.idea/
+.vscode/
+*.iml
+.DS_Store
+
+# Logs, cache, temp
+*.log
+*.tmp
+*.bak
+tmp/
+.cache/

@@ -1,0 +1,25 @@
+# GIS & data
+rasterio~=1.3.0
+geopandas~=0.12.0
+shapely~=2.0.0
+fiona
+pyproj
+
+# optimization
+pyomo>=6.4
+# If using gurobi, you will need gurobipy installed separately and license
+# gurobipy
+
+# solver backends (optional)
+pulp
+ortools
+
+# utilities & viz
+numpy
+pandas
+matplotlib
+folium
+rtree
+scikit-learn
+PyYAML
+tqdm

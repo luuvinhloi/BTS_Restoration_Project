@@ -1,0 +1,104 @@
+
+# CẤU HÌNH CHUNG CHO TOÀN BỘ PIPELINE
+
+# Lựa chọn phương pháp chính
+method: "MILP"                # "MILP" hoặc "GA_PSO" để điều khiển pipeline
+
+# Tham số mô phỏng & hệ thống
+damage_rate: 0.85             # Tỉ lệ BTS bị hỏng (0.6–0.9)
+population_sample_limit: 2000 # Giới hạn số điểm dân cư mẫu
+candidate_max: 1000            # Số điểm ứng viên tối đa cho COW
+M_max: 25                     # Số lượng xe COW tối đa có thể triển khai
+budget_max: 5e8               # Ngân sách tối đa (VNĐ)
+cover_ratio: 1.0              # Hệ số bao phủ
+seed: 42                      # Seed ngẫu nhiên để tái lập kết quả
+
+# Tham số mặc định cho mỗi COW / site
+default_R: 3000               # Bán kính phủ sóng mặc định (m)
+default_cost: 5e6             # Chi phí triển khai mặc định (VNĐ)
+default_setup_time_h: 0.5     # Thời gian lắp đặt mặc định (giờ)
+
+# Điều kiện địa hình / kỹ thuật chung
+slope_threshold_deg: 50       # Ngưỡng độ dốc loại trừ (độ)
+road_buffer_m: 500            # Khoảng cách tối đa từ site tới đường (m)
+candidate_radius_m: 500       # Bán kính tìm site ứng viên quanh BTS hỏng (m)
+candidate_per_bts: 3          # Số site ứng viên tạo cho mỗi BTS hỏng
+
+# THAM SỐ CHO FEATURE EXTRACTION (Sinh tập I và J)
+feature_extraction:
+  # Lọc raster dân số
+  pop_threshold: 5             # Ngưỡng tối thiểu để giữ ô raster dân số (giảm → nhiều I hơn)
+
+  # Phân cụm DBSCAN (tạo cụm dân cư I)
+  eps_dbscan_m: 1500           # Bán kính phân cụm (m): giảm -> nhiều cụm nhỏ hơn
+  db_min_samples: 3            # Số pixel tối thiểu để tạo cụm: giảm -> nhiều cụm lẻ hơn
+
+  # Sinh tập I (demand points)
+  default_R: 3000              # Bán kính phủ sóng của cụm I (m)
+  infra_buffer_m: 1500         # Vùng tính ưu tiên quanh hạ tầng (m)
+
+  # Sinh tập J (candidate sites)
+  candidate_per_cluster: 15     # Số site ứng viên quanh mỗi I: tăng -> tăng M
+  candidate_jitter_m: 300      # Độ ngẫu nhiên khi sinh site quanh I (m)
+  road_buffer_m: 4000          # Khoảng cách tối đa đến đường (m)
+  slope_threshold_deg: 30      # Độ dốc tối đa cho phép site
+  candidate_samples_global: 5000  # Số site ứng viên sinh toàn vùng (global)
+
+  # Giới hạn và kiểm soát
+  max_I: 1000                  # Giới hạn số lượng I (khu vực, địa điểm)
+  max_J: 1200                  # Giới hạn số lượng J (site ứng viên)
+
+  # Ngẫu nhiên / reproducibility
+  seed: 42
+
+# PHƯƠNG PHÁP 1: MILP (Mixed-Integer Linear Programming)
+milp:
+  # Bộ giải (solver)
+  solver:
+    engine: "gurobi"           # solver
+    time_limit: 1000           # Giới hạn thời gian chạy (giây)
+
+  # Hàm mục tiêu (fitness)
+  weights:
+    w_time: 0.05               # Hệ số phạt cho thời gian di chuyển
+    w_cost: 0.1                # Hệ số phạt cho chi phí vượt ngân sách
+
+#  # Ràng buộc
+#  budget_max: 5e8              # Ngân sách tối đa (VNĐ)
+#  M_max: 20                    # Số lượng COW tối đa được phép triển khai
+
+  # Mô phỏng sau tối ưu
+  simulation:
+    enable: true
+    scenario: "standard"       # Kịch bản mô phỏng
+    visualize: true            # Hiển thị bản đồ Folium sau khi chạy
+
+# PHƯƠNG PHÁP 2: GA-PSO LAI (Genetic Algorithm + Particle Swarm)
+ga_pso:
+  # Cấu hình thuật toán
+  runs: 1                     # Số lần chạy độc lập để thống kê
+  pop_size: 100                # Kích thước quần thể
+  max_iter: 200                # Số vòng lặp tối đa
+  mutation_rate: 0.08          # Xác suất đột biến
+  ga_period: 10                # Chu kỳ lai ghép GA trong vòng PSO
+  elitism: 0.1                 # Tỉ lệ cá thể ưu tú
+
+  # Chi phí và ràng buộc
+#  budget_max: 5e8              # Ngân sách tối đa (VNĐ)
+  cost_per_km_factor: 0.2      # Chi phí di chuyển theo km
+  max_slope_deg: 15.0          # Ràng buộc độ dốc tối đa
+
+  # Hàm mục tiêu (fitness)
+  weights:
+    w_time: 0.2               # Hệ số phạt thời gian
+    w_cost: 0.4                # Hệ số phạt chi phí
+  coverage_weight: 0.5         # Trọng số bổ sung cho độ phủ (tuỳ chọn mở rộng)
+
+  # Đầu ra
+  output_dir: "outputs/results_ga_pso"
+
+  # Mô phỏng sau tối ưu
+  simulation:
+    enable: true
+    scenario: "dynamic_coverage"
+    visualize: true
