@@ -29,9 +29,7 @@ from src.optimization.milp_pulp import (
     haversine_km, build_base_problem, extract_solution
 )
 
-# --- Utility functions ---------------------------------------------------
-
-
+# Utility functions
 def read_params(params_path):
     with open(params_path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
@@ -261,7 +259,7 @@ def run_lexicographic_for_solver(solver_name, cows, sites, travel_matrix, cover_
     solver_name: "GUROBI" or "CBC"
     Returns: result dict (same structure as before)
     """
-    print(f"\n--- Running lexicographic optimization with solver: {solver_name} ---")
+    print(f"\n Running lexicographic optimization with solver: {solver_name} ")
     start_all = time.time()
 
     # Build base problem (variables + common constraints). We will copy for each step to avoid stale objectives.
@@ -291,7 +289,7 @@ def run_lexicographic_for_solver(solver_name, cows, sites, travel_matrix, cover_
         # Use CBC
         solver = pulp.PULP_CBC_CMD(msg=True, timeLimit=int(params.get("milp", {}).get("solver", {}).get("time_limit", 600)))
 
-    # --- Step 1: Maximize covered population ---
+    #  Step 1: Maximize covered population
     prob1 = base_prob.copy()
     prob1.sense = pulp.LpMaximize
     objective_expr_1 = pulp.lpSum([float(next(s for s in sites if s["site_id"] == i)["pop"]) * z_vars[i] for i in demand_ids])
@@ -311,7 +309,7 @@ def run_lexicographic_for_solver(solver_name, cows, sites, travel_matrix, cover_
 
     optimal_covered_pop = covered_pop
 
-    # --- Step 2: Minimize T_max subject to covered_pop >= optimal_covered_pop ---
+    #  Step 2: Minimize T_max subject to covered_pop >= optimal_covered_pop
     prob2 = base_prob.copy()
     prob2 += pulp.lpSum([float(next(s for s in sites if s["site_id"] == i)["pop"]) * var_dict["z"][i] for i in demand_ids]) >= optimal_covered_pop, "fix_covered_pop"
     prob2.setObjective(var_dict["T_max"])
@@ -331,7 +329,7 @@ def run_lexicographic_for_solver(solver_name, cows, sites, travel_matrix, cover_
 
     optimal_T_max = T_max_val
 
-    # --- Step 3: Minimize total cost subject to coverage and T_max fixed ---
+    #  Step 3: Minimize total cost subject to coverage and T_max fixed
     prob3 = base_prob.copy()
     prob3 += pulp.lpSum([float(next(s for s in sites if s["site_id"] == i)["pop"]) * var_dict["z"][i] for i in demand_ids]) >= optimal_covered_pop, "fix_covered_pop"
     prob3 += var_dict["T_max"] <= optimal_T_max + 1e-6, "fix_T_max"
@@ -482,7 +480,7 @@ def main_solve(config_path, processed_data_dir, outputs_dir=None):
     for s, r in results:
         print(f"Solver: {r.get('solver')}, covered_pop={r.get('optimal_covered_pop')}, T_max={r.get('optimal_T_max')}, total_cost={r.get('final_total_cost_vnd')}, time={r.get('time_elapsed_s'):.2f}s")
 
-    # --- EXPORT results that downstream steps expect (outputs/results/) ---
+    #  EXPORT results that downstream steps expect (outputs/results/)
     # Prepare outputs/results dir
     project_outputs_results = Path.cwd() / "outputs" / "results"
     project_outputs_results.mkdir(parents=True, exist_ok=True)
