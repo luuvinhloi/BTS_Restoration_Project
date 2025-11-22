@@ -426,7 +426,7 @@ def ga_pso_hybrid_main(processed_data_dir: str,
 
     # 1b) Configuration / parameters (normalize & defaults)
     # Use config dict values with defaults
-    M_max = int(config.get("M_max", 25))
+    M_max = int(config.get("M_max", 20))
     pop_size = int(config.get("pop_size", 100))
     max_iter = int(config.get("max_iter", 200))
     mutation_rate = float(config.get("mutation_rate", 0.08))
