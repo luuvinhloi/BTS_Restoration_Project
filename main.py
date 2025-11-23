@@ -6,7 +6,8 @@ from src.utils.io_utils import read_yaml
 from src.optimization.MILP.solver_milp import main_solve as milp_lexi_solve
 
 # Import GA–PSO và mô phỏng
-from src.optimization.GA_PSO.ga_pso_hybrid import ga_pso_hybrid_main
+from src.optimization.GA_PSO.ga_pso_hybrid_new import ga_pso_hybrid_main
+# from src.optimization.GA_PSO.ga_pso_hybrid import ga_pso_hybrid_main
 from src.visualization.simulation_scenario import run_simulation_scenario
 from src.visualization.compute_population_coverage import main_compute_all
 
@@ -52,14 +53,25 @@ def run_pipeline(config_path):
         )
 
     elif method == "GA_PSO":
+        # print("5) Solving with GA–PSO (Phương pháp 2)...")
+        # runs = int(cfg.get("ga_pso", {}).get("runs", 30))
+        # for i in range(runs):
+        #     print(f"    Run {i+1}/{runs}")
+        #     summary = ga_pso_hybrid_main(
+        #         str(PROJECT_ROOT / "data" / "processed"),
+        #         str(PROJECT_ROOT / "outputs" / f"ga_pso_run_{i+1:02d}"),
+        #         cfg["ga_pso"]
+        #     )
         print("5) Solving with GA–PSO (Phương pháp 2)...")
-        runs = int(cfg.get("ga_pso", {}).get("runs", 30))
+        runs = int(cfg.get("ga_pso", {}).get("runs", 1))
         for i in range(runs):
-            print(f"    Run {i+1}/{runs}")
+            print(f"    Run {i + 1}/{runs}")
+            # outputs per-run folder
+            out_dir = str(PROJECT_ROOT / "outputs" / f"ga_pso_run_{i + 1:02d}")
             summary = ga_pso_hybrid_main(
                 str(PROJECT_ROOT / "data" / "processed"),
-                str(PROJECT_ROOT / "outputs" / f"ga_pso_run_{i+1:02d}"),
-                cfg["ga_pso"]
+                out_dir,
+                cfg.get("ga_pso", {})
             )
 
     else:

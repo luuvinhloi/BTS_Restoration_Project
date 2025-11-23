@@ -136,10 +136,16 @@ def build_cover_indicator(cows, sites):
     return cover
 
 
-def _write_assignments_csv(assignments, cows_df, sites_df, out_path):
+def _write_assignments_csv(assignments, cows_df, sites_df, out_path, travel_matrix=None, default_setup_time_h=0.5):
     """
     assignments: list of tuples (cow_id, site_id)
-    Write CSV with columns: cow_id,type,base_id,assigned_site_index,assigned_site_id,coverage_radius_m
+    Write CSV with columns:
+      cow_id,type,base_id,assigned_site_index,assigned_site_id,coverage_radius_m,
+      cost_vnd, travel_cost_vnd, total_cost_vnd,
+      travel_time_hr, setup_time_h, deployment_time_hr
+
+    travel_matrix: dictionary keyed (cow_id, site_id) -> dict(distance_km, travel_time_hr, travel_cost_vnd)
+    default_setup_time_h: float, common setup time used for all COWs
     """
     rows = []
     for (cow_id, site_id) in assignments:
@@ -148,10 +154,16 @@ def _write_assignments_csv(assignments, cows_df, sites_df, out_path):
             cow_type = ""
             base_id = ""
             coverage_radius_m = ""
+            cow_cost_vnd = 0.0
         else:
             cow_type = cow_row.iloc[0].get("type", "")
             base_id = cow_row.iloc[0].get("base_id", "")
             coverage_radius_m = cow_row.iloc[0].get("coverage_radius_m", "")
+            try:
+                cow_cost_vnd = float(cow_row.iloc[0].get("cost_vnd", 0.0))
+            except Exception:
+                cow_cost_vnd = 0.0
+
         # find site index in sites_df by site_id or by i_ref
         idx_match = sites_df[sites_df["site_id"] == site_id]
         if idx_match.empty:
@@ -159,15 +171,42 @@ def _write_assignments_csv(assignments, cows_df, sites_df, out_path):
         assigned_site_index = ""
         if not idx_match.empty:
             assigned_site_index = int(idx_match.index[0]) + 1
+
+        # travel metrics from travel_matrix if provided
+        travel_cost_vnd = 0.0
+        travel_time_hr = 0.0
+        if travel_matrix is not None:
+            t = travel_matrix.get((cow_id, site_id), {})
+            travel_cost_vnd = float(t.get("travel_cost_vnd", 0.0))
+            travel_time_hr = float(t.get("travel_time_hr", 0.0))
+
+        setup_time_h = float(default_setup_time_h)
+        deployment_time_hr = travel_time_hr + setup_time_h
+
+        total_cost_vnd = cow_cost_vnd + travel_cost_vnd
+
         rows.append({
             "cow_id": cow_id,
             "type": cow_type,
             "base_id": base_id,
             "assigned_site_index": assigned_site_index,
             "assigned_site_id": site_id,
-            "coverage_radius_m": coverage_radius_m
+            "coverage_radius_m": coverage_radius_m,
+            "cost_vnd": cow_cost_vnd,
+            "travel_cost_vnd": travel_cost_vnd,
+            "total_cost_vnd": total_cost_vnd,
+            "travel_time_hr": travel_time_hr,
+            "setup_time_h": setup_time_h,
+            "deployment_time_hr": deployment_time_hr
         })
     df = pd.DataFrame(rows)
+    # Ensure consistent column order
+    cols = [
+        "cow_id", "type", "base_id", "assigned_site_index", "assigned_site_id", "coverage_radius_m",
+        "cost_vnd", "travel_cost_vnd", "total_cost_vnd",
+        "travel_time_hr", "setup_time_h", "deployment_time_hr"
+    ]
+    df = df[cols]
     df.to_csv(out_path, index=False)
     return df
 
@@ -240,7 +279,7 @@ def _build_summary_json(result, cows_df, sites_df, travel_matrix, out_json_path)
         "total_fixed_cost_vnd": total_broadcast_cost,
         "total_travel_cost_vnd": total_travel_cost,
         "total_cost_all_vnd": total_cost_all,
-        "total_time_hours": float(T_max) if T_max is not None else None,
+        "max_time_hours": float(T_max) if T_max is not None else None,
         # note: raster-based metrics will be computed by compute_population_coverage and merged later
     }
 
@@ -258,7 +297,7 @@ def run_lexicographic_for_solver(solver_name, cows, sites, travel_matrix, cover_
     solver_name: "GUROBI" or "CBC"
     Returns: result dict (same structure as before)
     """
-    print(f"\n Running lexicographic optimization with solver: {solver_name} ")
+    print(f"\n Running lexicographic optimization with solver: {solver_name}")
     start_all = time.time()
 
     # Build base problem (variables + common constraints). We will copy for each step to avoid stale objectives.
@@ -288,7 +327,7 @@ def run_lexicographic_for_solver(solver_name, cows, sites, travel_matrix, cover_
         # Use CBC
         solver = pulp.PULP_CBC_CMD(msg=True, timeLimit=int(params.get("milp", {}).get("solver", {}).get("time_limit", 600)))
 
-    #  Step 1: Maximize covered population
+    # --- Step 1: Maximize covered population ---
     prob1 = base_prob.copy()
     prob1.sense = pulp.LpMaximize
     objective_expr_1 = pulp.lpSum([float(next(s for s in sites if s["site_id"] == i)["pop"]) * z_vars[i] for i in demand_ids])
@@ -308,7 +347,7 @@ def run_lexicographic_for_solver(solver_name, cows, sites, travel_matrix, cover_
 
     optimal_covered_pop = covered_pop
 
-    #  Step 2: Minimize T_max subject to covered_pop >= optimal_covered_pop
+    # --- Step 2: Minimize T_max subject to covered_pop >= optimal_covered_pop ---
     prob2 = base_prob.copy()
     prob2 += pulp.lpSum([float(next(s for s in sites if s["site_id"] == i)["pop"]) * var_dict["z"][i] for i in demand_ids]) >= optimal_covered_pop, "fix_covered_pop"
     prob2.setObjective(var_dict["T_max"])
@@ -328,7 +367,7 @@ def run_lexicographic_for_solver(solver_name, cows, sites, travel_matrix, cover_
 
     optimal_T_max = T_max_val
 
-    #  Step 3: Minimize total cost subject to coverage and T_max fixed
+    # --- Step 3: Minimize total cost subject to coverage and T_max fixed ---
     prob3 = base_prob.copy()
     prob3 += pulp.lpSum([float(next(s for s in sites if s["site_id"] == i)["pop"]) * var_dict["z"][i] for i in demand_ids]) >= optimal_covered_pop, "fix_covered_pop"
     prob3 += var_dict["T_max"] <= optimal_T_max + 1e-6, "fix_T_max"
@@ -437,7 +476,7 @@ def run_lexicographic_for_solver(solver_name, cows, sites, travel_matrix, cover_
     except Exception:
         pass
 
-    print(f"Step results saved to {out_path}")
+    print(f"Solver {solver_name} finished. Results saved to {out_path}")
     return result
 
 
@@ -475,7 +514,7 @@ def main_solve(config_path, processed_data_dir, outputs_dir=None):
         results.append((s, res))
 
     # Summarize comparison
-    print("\n=== Comparison summary ===")
+    print("\n Comparison summary")
     for s, r in results:
         print(f"Solver: {r.get('solver')}, covered_pop={r.get('optimal_covered_pop')}, T_max={r.get('optimal_T_max')}, total_cost={r.get('final_total_cost_vnd')}, time={r.get('time_elapsed_s'):.2f}s")
 
@@ -486,12 +525,13 @@ def main_solve(config_path, processed_data_dir, outputs_dir=None):
 
     # For each solver: write milp_assignments_{solver}.csv (rich) in outputs/results
     saved_result_map = {}
+    default_setup_time_h = float(params.get("default_setup_time_h", 0.5))
     for solver_name, res in results:
         solver_lower = solver_name.lower()
         assignments = res.get("assignments", [])
         out_assign_path = project_outputs_results / f"milp_assignments_{solver_lower}.csv"
-        # write enriched csv using cows_df and sites_df
-        df_assign = _write_assignments_csv(assignments, cows_df, sites_df, out_assign_path)
+        # write enriched csv using cows_df and sites_df, include travel and setup info
+        df_assign = _write_assignments_csv(assignments, cows_df, sites_df, out_assign_path, travel_matrix=travel_matrix, default_setup_time_h=default_setup_time_h)
         saved_result_map[solver_lower] = {
             "assign_df": df_assign,
             "result": res,

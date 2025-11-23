@@ -5,9 +5,9 @@
   "population_outage_due_failed_bts": 412305.6875,
   "population_not_covered_now": 395715.5625,
   "failed_union_population": 1145836.375,
-  "population_restored_by_cows": 102655.375,
-  "coverage_restored_percent_of_outage": 24.9,
+  "population_restored_by_cows": 166133.8125,
+  "coverage_restored_percent_of_outage": 40.29,
   "coverage_active_percent": 66.67,
-  "coverage_after_restoration_percent": 75.31,
-  "cow_union_pop_total": 314509.0
+  "coverage_after_restoration_percent": 80.66,
+  "cow_union_pop_total": 303021.46875
 }
