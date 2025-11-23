@@ -2,16 +2,18 @@
 """
 MILP builder using PuLP for COW deployment lexicographic optimization.
 
-Provides:
-- build_base_problem(...) : constructs a fresh PuLP problem with variables and constraints common to all 3 lexicographic steps.
-- helper functions to extract solution and metrics.
-
-Assumptions / notes:
-- Demand points are provided by J_sites.csv (site_id, latitude, longitude, pop, ...).
-- Deployment candidates are the same set of J_sites (deploying at site j).
-- travel_cost_matrix contains travel_time_hr and travel_cost_vnd per cow_id/site_id pair.
-- Coverage decision: a cow k deployed at site j covers demand i if distance(i,j) * 1000 <= cow.coverage_radius_m.
-- Non-overlap: sum_j y[i,j] <= 1 (each demand served by at most one site).
+Notes and changes:
+- endurance_hr in cow records is interpreted as the maximum *broadcast* (operation) time
+  a COW can sustain (hours). It is NOT travel time.
+- Added configurable behavior via params:
+    params["endurance_mode"] in {"none","broadcast","travel_plus_setup","total"}
+    params["required_broadcast_time_h"] (float, default 0.0)
+  to control how endurance is enforced:
+    - "none": do not enforce endurance
+    - "broadcast": require required_broadcast_time_h <= cow.endurance_hr (global requirement)
+    - "travel_plus_setup": require travel_time + setup_time <= cow.endurance_hr (per assignment)
+    - "total": require travel_time + setup_time + required_broadcast_time_h <= cow.endurance_hr (per assignment)
+- If enforcement fails for a (cow,site) the assignment x[cow][site] is forced to 0.
 """
 
 from math import radians, sin, cos, asin, sqrt
@@ -46,8 +48,7 @@ def build_base_problem(demand_list, site_list, cows, travel_matrix,
       - solver_name: "GUROBI" or "CBC" (affects solver selection when solve called)
     Returns:
       - prob: pulp.LpProblem object
-      - variables dicts: x[(cow_id, site_id)], y[(demand_id, site_id)], z[demand_id], T_max variable
-      - helper data structures for constraints
+      - var_dict: dictionary with variable objects and helper meta
     """
 
     # Create problem (objective to be set per lexicographic step)
@@ -62,6 +63,10 @@ def build_base_problem(demand_list, site_list, cows, travel_matrix,
     budget_max = float(params.get("budget_max", 5e8))
     M_max = int(params.get("M_max", len(cows)))
     setup_time_h = float(params.get("default_setup_time_h", 0.5))
+
+    # Endurance related params (new)
+    endurance_mode = params.get("endurance_mode", "none")  # "none","broadcast","travel_plus_setup","total"
+    required_broadcast_time_h = float(params.get("required_broadcast_time_h", 0.0))
 
     # Decision variables
     # x_kj : 1 if cow k is deployed at site j
@@ -107,7 +112,6 @@ def build_base_problem(demand_list, site_list, cows, travel_matrix,
         prob += z[i] <= pulp.lpSum([y[i][j] for j in site_ids]), f"z_def_{i}"
 
     # 6) Budget constraint (total deployment cost + travel cost <= budget)
-    # We'll compute cost expression from travel_matrix and cow base cost.
     total_cost_expr = []
     for k in cow_ids:
         cow_cost = float(next(c for c in cows if c["cow_id"] == k).get("cost_vnd", 0.0))
@@ -119,21 +123,47 @@ def build_base_problem(demand_list, site_list, cows, travel_matrix,
     # 7) M_max constraint: total number of deployed cows <= M_max
     prob += pulp.lpSum([x[k][j] for k in cow_ids for j in site_ids]) <= M_max, "M_max_constraint"
 
-    # 8) Endurance constraint: disallow assignments where travel_time > endurance of cow
-    for k in cow_ids:
-        cow_endurance = float(next(c for c in cows if c["cow_id"] == k).get("endurance_hr", 0.0))
-        for j in site_ids:
-            travel_time_hr = float(travel_matrix.get((k, j), {}).get("travel_time_hr", 0.0))
-            if travel_time_hr > cow_endurance:
-                # cannot assign cow k to site j
-                prob += x[k][j] == 0, f"endurance_violation_{k}_{j}"
+    # 8) Endurance constraint (reworked):
+    #    We interpret cow["endurance_hr"] as the max broadcast (operation) time for that COW.
+    #    Behavior controlled by endurance_mode:
+    #      - "none": do nothing
+    #      - "broadcast": if required_broadcast_time_h > cow.endurance_hr -> cow cannot be used (x[k][j]==0 for all j)
+    #      - "travel_plus_setup": if travel_time_hr + setup_time_h > cow.endurance_hr -> disallow that assignment (x[k][j]==0)
+    #      - "total": if travel_time_hr + setup_time_h + required_broadcast_time_h > cow.endurance_hr -> disallow assignment
+    if endurance_mode not in {"none", "broadcast", "travel_plus_setup", "total"}:
+        # fallback to none if an unknown mode provided
+        endurance_mode = "none"
+
+    if endurance_mode == "broadcast":
+        # Global check: if required broadcast time exceeds cow endurance, cow cannot be used at all
+        if required_broadcast_time_h > 0.0:
+            for k in cow_ids:
+                cow_endurance = float(next(c for c in cows if c["cow_id"] == k).get("endurance_hr", 0.0))
+                if required_broadcast_time_h > cow_endurance:
+                    # No assignment allowed for this cow
+                    for j in site_ids:
+                        prob += x[k][j] == 0, f"endurance_broadcast_violation_{k}_{j}"
+
+    elif endurance_mode in {"travel_plus_setup", "total"}:
+        # Per-assignment checks
+        for k in cow_ids:
+            cow_endurance = float(next(c for c in cows if c["cow_id"] == k).get("endurance_hr", 0.0))
+            for j in site_ids:
+                travel_time_hr = float(travel_matrix.get((k, j), {}).get("travel_time_hr", 0.0))
+                # compute required total time depending on mode
+                required_time = travel_time_hr + setup_time_h
+                if endurance_mode == "total":
+                    required_time += required_broadcast_time_h
+                # if required_time is greater than cow endurance => cannot assign cow k to site j
+                if required_time > cow_endurance:
+                    prob += x[k][j] == 0, f"endurance_violation_{endurance_mode}_{k}_{j}"
+    # else: "none" -> no constraints added
 
     # 9) T_max constraints:
     #    For each possible assignment (k,j): T_max >= (travel_time_hr + setup_time_h) * x[k][j]
     for k in cow_ids:
         for j in site_ids:
             travel_time_hr = float(travel_matrix.get((k, j), {}).get("travel_time_hr", 0.0))
-            # (travel_time + setup_time) * x_kj <= T_max  -> T_max >= ...
             prob += T_max >= (travel_time_hr + setup_time_h) * x[k][j], f"Tmax_def_{k}_{j}"
 
     # Return problem and variable references
@@ -146,7 +176,9 @@ def build_base_problem(demand_list, site_list, cows, travel_matrix,
         "site_ids": site_ids,
         "cow_ids": cow_ids,
         "budget_max": budget_max,
-        "setup_time_h": setup_time_h
+        "setup_time_h": setup_time_h,
+        "endurance_mode": endurance_mode,
+        "required_broadcast_time_h": required_broadcast_time_h
     }
     return prob, var_dict
 

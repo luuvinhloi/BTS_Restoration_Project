@@ -1,0 +1,11 @@
+{
+  "best_fitness": 0.27577102156543043,
+  "coverage_ratio": 0.9007306536002941,
+  "total_cost_vnd": 495000102.7684577,
+  "makespan_hours": 1.6689251707774166,
+  "runtime_s": 153.47882103919983,
+  "used_cows": 13,
+  "M_max": 20,
+  "pop_size": 100,
+  "max_iter": 200
+}

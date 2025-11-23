@@ -804,7 +804,7 @@ if __name__ == "__main__":
     else:
         # default config
         cfg_to_use = {
-            "M_max": 25,
+            "M_max": 20,
             "pop_size": 100,
             "max_iter": 200,
             "mutation_rate": 0.08,

@@ -2,17 +2,13 @@
 import argparse
 from pathlib import Path
 from src.utils.io_utils import read_yaml
-from src.preprocessing import (data_cleaning, generate_damage_scenario, feature_extraction,
-                               feature_extraction_optimize_A, feature_extraction_optimize_B, feature_extraction_A)
 # from src.optimization import solver_milp
-from src.optimization.solver_milp import main_solve as milp_lexi_solve
-from src.visualization import plot_results, dashboard_folium
+from src.optimization.MILP.solver_milp import main_solve as milp_lexi_solve
 
 # Import GA–PSO và mô phỏng
-from src.optimization.ga_pso_hybrid import ga_pso_hybrid_main
+from src.optimization.GA_PSO.ga_pso_hybrid import ga_pso_hybrid_main
 from src.visualization.simulation_scenario import run_simulation_scenario
 from src.visualization.compute_population_coverage import main_compute_all
-from src.preprocessing.compute_travel_costs_A import compute_travel_matrix
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 

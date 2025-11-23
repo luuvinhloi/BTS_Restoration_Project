@@ -18,15 +18,14 @@ Requirements:
 - pyyaml
 """
 
-import os
 from pathlib import Path
 import pandas as pd
 import yaml
 import time
 import json
 import pulp
-from src.optimization.milp_pulp import (
-    haversine_km, build_base_problem, extract_solution
+from src.optimization.MILP.milp_pulp import (
+    haversine_km, build_base_problem
 )
 
 # --- Utility functions ---------------------------------------------------
