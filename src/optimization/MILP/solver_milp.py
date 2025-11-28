@@ -327,7 +327,7 @@ def run_lexicographic_for_solver(solver_name, cows, sites, travel_matrix, cover_
         # Use CBC
         solver = pulp.PULP_CBC_CMD(msg=True, timeLimit=int(params.get("milp", {}).get("solver", {}).get("time_limit", 600)))
 
-    # --- Step 1: Maximize covered population ---
+    # Step 1: Maximize covered population
     prob1 = base_prob.copy()
     prob1.sense = pulp.LpMaximize
     objective_expr_1 = pulp.lpSum([float(next(s for s in sites if s["site_id"] == i)["pop"]) * z_vars[i] for i in demand_ids])
@@ -347,7 +347,7 @@ def run_lexicographic_for_solver(solver_name, cows, sites, travel_matrix, cover_
 
     optimal_covered_pop = covered_pop
 
-    # --- Step 2: Minimize T_max subject to covered_pop >= optimal_covered_pop ---
+    # Step 2: Minimize T_max subject to covered_pop >= optimal_covered_pop
     prob2 = base_prob.copy()
     prob2 += pulp.lpSum([float(next(s for s in sites if s["site_id"] == i)["pop"]) * var_dict["z"][i] for i in demand_ids]) >= optimal_covered_pop, "fix_covered_pop"
     prob2.setObjective(var_dict["T_max"])
@@ -367,7 +367,7 @@ def run_lexicographic_for_solver(solver_name, cows, sites, travel_matrix, cover_
 
     optimal_T_max = T_max_val
 
-    # --- Step 3: Minimize total cost subject to coverage and T_max fixed ---
+    # Step 3: Minimize total cost subject to coverage and T_max fixed
     prob3 = base_prob.copy()
     prob3 += pulp.lpSum([float(next(s for s in sites if s["site_id"] == i)["pop"]) * var_dict["z"][i] for i in demand_ids]) >= optimal_covered_pop, "fix_covered_pop"
     prob3 += var_dict["T_max"] <= optimal_T_max + 1e-6, "fix_T_max"

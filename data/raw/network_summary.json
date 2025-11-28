@@ -1,0 +1,14 @@
+{
+    "province": "Thừa Thiên Huế",
+    "total_population": 1187126.25,
+    "GA": {
+        "unique_population": 1163364.75,
+        "coverage_ratio_percent": 97.99840160218848,
+        "overlap_ratio_percent": 81.11014941020868
+    },
+    "Greedy": {
+        "unique_population": 858764.1875,
+        "coverage_ratio_percent": 72.33975219569106,
+        "overlap_ratio_percent": 96.07898208383826
+    }
+}

@@ -14,8 +14,8 @@ cover_ratio: 1.0              # Hệ số bao phủ
 seed: 42                      # Seed ngẫu nhiên để tái lập kết quả
 
 # Tham số ràng buộc về thời gian & endurance
-endurance_mode: "total"                # one of: none, broadcast, travel_plus_setup, total
-required_broadcast_time_h: 24.0        # hours required at deployed site (set 0 to ignore)
+endurance_mode: "none"                # one of: none, broadcast, travel_plus_setup, total
+required_broadcast_time_h: 0        # hours required at deployed site (set 0 to ignore)
 
 # Tham số mặc định cho mỗi COW / site
 default_R: 3000               # Bán kính phủ sóng mặc định (m)
