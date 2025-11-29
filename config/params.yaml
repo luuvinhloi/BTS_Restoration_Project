@@ -31,25 +31,25 @@ candidate_per_bts: 3          # Số site ứng viên tạo cho mỗi BTS hỏng
 # THAM SỐ CHO FEATURE EXTRACTION (Sinh tập I và J)
 feature_extraction:
   # Lọc raster dân số
-  pop_threshold: 5             # Ngưỡng tối thiểu để giữ ô raster dân số (giảm → nhiều I hơn)
+  pop_threshold: 3             # Ngưỡng tối thiểu để giữ ô raster dân số (giảm → nhiều I hơn)
 
   # Phân cụm DBSCAN (tạo cụm dân cư I)
-  eps_dbscan_m: 1500           # Bán kính phân cụm (m): giảm -> nhiều cụm nhỏ hơn
-  db_min_samples: 3            # Số pixel tối thiểu để tạo cụm: giảm -> nhiều cụm lẻ hơn
+  eps_dbscan_m: 1200           # Bán kính phân cụm (m): giảm -> nhiều cụm nhỏ hơn
+  db_min_samples: 2            # Số pixel tối thiểu để tạo cụm: giảm -> nhiều cụm lẻ hơn
 
   # Sinh tập I (demand points)
   default_R: 3000              # Bán kính phủ sóng của cụm I (m)
   infra_buffer_m: 1500         # Vùng tính ưu tiên quanh hạ tầng (m)
 
   # Sinh tập J (candidate sites)
-  candidate_per_cluster: 15     # Số site ứng viên quanh mỗi I: tăng -> tăng M
-  candidate_jitter_m: 300      # Độ ngẫu nhiên khi sinh site quanh I (m)
-  road_buffer_m: 4000          # Khoảng cách tối đa đến đường (m)
-  slope_threshold_deg: 30      # Độ dốc tối đa cho phép site
-  candidate_samples_global: 5000  # Số site ứng viên sinh toàn vùng (global)
+  candidate_per_cluster: 30     # Số site ứng viên quanh mỗi I: tăng -> tăng M
+  candidate_jitter_m: 600      # Độ ngẫu nhiên khi sinh site quanh I (m)
+  road_buffer_m: 5000          # Khoảng cách tối đa đến đường (m)
+  slope_threshold_deg: 35      # Độ dốc tối đa cho phép site
+  candidate_samples_global: 10000  # Số site ứng viên sinh toàn vùng (global)
 
   # Giới hạn và kiểm soát
-  max_I: 1000                  # Giới hạn số lượng I (khu vực, địa điểm)
+  max_I: 1500                  # Giới hạn số lượng I (khu vực, địa điểm)
   max_J: 1200                  # Giới hạn số lượng J (site ứng viên)
 
   # Ngẫu nhiên / reproducibility

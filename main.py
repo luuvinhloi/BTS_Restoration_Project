@@ -10,10 +10,11 @@ from src.preprocessing.data_preparation.data_cleaning import main as data_cleani
 from src.preprocessing.bts_generation.generate_bts_network import main as generate_bts_network
 from src.preprocessing.cow_generation.cow_dataset_generator import generate_cow_dataset
 from src.preprocessing.damage_simulation.generate_damage_scenario import main as generate_damage_scenario
-from src.preprocessing.feature_engineering.feature_extraction import main as feature_extraction
-from src.preprocessing.feature_engineering.feature_extraction_optimize_A import main as feature_extraction_optimize_A
-from src.preprocessing.feature_engineering.feature_extraction_optimize_B import main as feature_extraction_optimize_B
-from src.preprocessing.feature_engineering.feature_extraction_A import main as feature_extraction_A
+from src.preprocessing.I_J_generation.feature_extraction_final import main as feature_extraction_final
+from src.preprocessing.I_J_generation.feature_extraction import main as feature_extraction
+from src.preprocessing.I_J_generation.feature_extraction_optimize_A import main as feature_extraction_optimize_A
+from src.preprocessing.I_J_generation.feature_extraction_optimize_B import main as feature_extraction_optimize_B
+from src.preprocessing.I_J_generation.feature_extraction_A import main as feature_extraction_A
 from src.preprocessing.travel_cost.compute_travel_costs import compute_travel_matrix
 
 # Optimization
@@ -36,10 +37,10 @@ def run_pipeline(config_path):
     # data_cleaning.main()
 
     print("2) Generating BTS network and Generating COW dataset...")
-    print("Generating COW dataset...")
-    generate_bts_network()
-    print("Generating COW dataset...")
-    generate_cow_dataset(str(PROJECT_ROOT / "data" / "raw"))
+    # print("Generating COW dataset...")
+    # generate_bts_network()
+    # print("Generating COW dataset...")
+    # generate_cow_dataset(str(PROJECT_ROOT / "data" / "raw"))
 
     print("3) Generating damage scenario...")
     # generate_damage_scenario.main(
@@ -50,6 +51,7 @@ def run_pipeline(config_path):
     # )
 
     print("4) Feature extraction...")
+    feature_extraction_final(cfg, str(PROJECT_ROOT / "data" / "processed"))
     # feature_extraction.main(cfg, str(PROJECT_ROOT / "data" / "processed"))
     # feature_extraction_A.main(cfg, str(PROJECT_ROOT / "data" / "processed"))
     # feature_extraction_optimize_A.main(cfg, str(PROJECT_ROOT / "data" / "processed"))
