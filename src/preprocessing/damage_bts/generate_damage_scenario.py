@@ -81,8 +81,8 @@ if __name__ == "__main__":
     import argparse
 
     p = argparse.ArgumentParser()
-    p.add_argument("--bts_csv", default=str(DATA_DIR / "raw" / "bts_ga.csv"))
-    p.add_argument("--out_dir", default=str(DATA_DIR / "processed"))
+    p.add_argument("--bts_csv", default=str(DATA_DIR / "processed" / "bts_network" / "bts_ga.csv"))
+    p.add_argument("--out_dir", default=str(DATA_DIR / "processed" / "damage_bts"))
     p.add_argument("--damage_rate", type=float, default=0.85)
     p.add_argument("--seed", type=int, default=42)
     args = p.parse_args()

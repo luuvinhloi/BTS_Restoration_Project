@@ -19,7 +19,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 def ga_pso_hybrid_main(processed_data_dir: str, outputs_dir: str, config: dict):
     t0 = time.time()
     processed = Path(processed_data_dir)
-    raw = processed.parent / "raw"
+    cleaned = processed.parent / "cleaned"
     outputs = Path(outputs_dir)
     outputs.mkdir(parents=True, exist_ok=True)
 
@@ -43,7 +43,7 @@ def ga_pso_hybrid_main(processed_data_dir: str, outputs_dir: str, config: dict):
     logging.info(f"GA-PSO config pop={pop_size}, iter={max_iter}, budget={budget_max}")
 
     # Load data
-    I_df, J_df, cow_df, travel_dict = load_inputs(processed, raw, params)
+    I_df, J_df, cow_df, travel_dict = load_inputs(processed, cleaned, params)
     n_cows = len(cow_df)
     n_I = len(I_df)
     n_J = len(J_df)

@@ -8,15 +8,16 @@ from pathlib import Path
 # Config: Đường dẫn dữ liệu
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-DATA_DIR = PROJECT_ROOT / "data"
+PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
+CLEANED_DIR = PROJECT_ROOT / "data" / "cleaned"
 OUT_DIR = PROJECT_ROOT / "outputs" / "maps"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-ACTIVE_CSV = DATA_DIR / "processed" / "active_bts.csv"
-FAILED_CSV = DATA_DIR / "processed" / "failed_bts.csv"
-ACTIVE_GEO = DATA_DIR / "processed" / "active_bts.geojson"
-FAILED_GEO = DATA_DIR / "processed" / "failed_bts.geojson"
-HUE_BOUNDARY = DATA_DIR / "raw" / "hue_boundary.geojson"
+ACTIVE_CSV = PROCESSED_DIR / "damage_bts" / "active_bts.csv"
+FAILED_CSV = PROCESSED_DIR / "damage_bts" / "failed_bts.csv"
+ACTIVE_GEO = PROCESSED_DIR / "damage_bts" / "active_bts.geojson"
+FAILED_GEO = PROCESSED_DIR / "damage_bts" / "failed_bts.geojson"
+HUE_BOUNDARY = CLEANED_DIR / "hue_boundary_clean.geojson"
 
 OUTPUT_HTML = OUT_DIR / "bts_damage_simulation.html"
 

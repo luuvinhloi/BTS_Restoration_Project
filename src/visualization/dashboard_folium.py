@@ -16,18 +16,19 @@ from pathlib import Path
 from folium.plugins import MarkerCluster, Fullscreen
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DATA_DIR = PROJECT_ROOT / "data"
+PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
+CLEANED_DIR = PROJECT_ROOT / "data" / "cleaned"
 OUT_DIR = PROJECT_ROOT / "outputs"
 
 def create_interactive_map():
     # 1. Đọc dữ liệu
-    boundary = gpd.read_file(DATA_DIR / "raw" / "hue_boundary.geojson")
+    boundary = gpd.read_file(CLEANED_DIR / "hue_boundary_clean.geojson")
     centroid = boundary.geometry.unary_union.centroid
 
-    I_points = pd.read_csv(DATA_DIR / "processed" / "I_points.csv")
-    J_sites = pd.read_csv(DATA_DIR / "processed" / "J_sites.csv")
-    COWs = pd.read_csv(DATA_DIR / "raw" / "cow_dataset.csv")
-    BTS = pd.read_csv(DATA_DIR / "raw" / "bts_ga.csv")
+    I_points = pd.read_csv(PROCESSED_DIR / "position_I_J" / "I_points.csv")
+    J_sites = pd.read_csv(PROCESSED_DIR / "position_I_J" / "J_sites.csv")
+    COWs = pd.read_csv(PROCESSED_DIR / "cow" / "cow_dataset.csv")
+    BTS = pd.read_csv(PROCESSED_DIR / "bts_network" / "bts_ga.csv")
 
     result = json.load(open(OUT_DIR / "results" / "milp_solution_summary.json"))
     chosen_site_ids = set(result["chosen_site_ids"])

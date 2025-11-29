@@ -32,15 +32,15 @@ from src.utils.geo_utils import compute_distance_matrix
 from src.utils.io_utils import read_geojson
 
 # PATHS
-DATA_DIR = Path(__file__).resolve().parents[2] / "data"
-RAW_DIR = DATA_DIR / "raw"
-PROCESSED_DIR = DATA_DIR / "processed"
+DATA_DIR = Path(__file__).resolve().parents[3] / "data"
+CLEANED_DIR = DATA_DIR / "cleaned"
+DAMAGE_BTS_DIR = DATA_DIR / "processed" / "damage_bts"
 
 
 # Helper: read CSV for active/failed BTS
 def read_bts_files():
-    active_path = PROCESSED_DIR / "active_bts.csv"
-    failed_path = PROCESSED_DIR / "failed_bts.csv"
+    active_path = DAMAGE_BTS_DIR / "active_bts.csv"
+    failed_path = DAMAGE_BTS_DIR / "failed_bts.csv"
     active = pd.read_csv(active_path) if active_path.exists() else pd.DataFrame()
     failed = pd.read_csv(failed_path) if failed_path.exists() else pd.DataFrame()
     return active, failed
@@ -584,11 +584,11 @@ def main(config, out_dir):
     overlap_keep_threshold = float(config.get('overlap_keep_threshold', 0.1))
     seed = int(config.get('seed', 42))
 
-    boundary = gpd.read_file(RAW_DIR / "hue_boundary.geojson") if (RAW_DIR / "hue_boundary.geojson").exists() else None
-    pop_tif = str(RAW_DIR / "pop_hue.tif")
-    slope_tif = str(RAW_DIR / "slope_hue.tif")
-    roads = read_geojson(str(RAW_DIR / "roads_hue.geojson"))
-    water = read_geojson(str(RAW_DIR / "water_hue.geojson"))
+    boundary = gpd.read_file(CLEANED_DIR / "hue_boundary_clean.geojson")
+    pop_tif = str(CLEANED_DIR / "pop_hue_clean.tif")
+    slope_tif = str(CLEANED_DIR / "slope_hue_clean.tif")
+    roads = read_geojson(str(CLEANED_DIR / "roads_hue_clean.geojson"))
+    water = read_geojson(str(CLEANED_DIR / "water_hue_clean.geojson"))
     active_bts, failed_bts = read_bts_files()
 
     np.random.seed(seed)
@@ -659,8 +659,8 @@ def main(config, out_dir):
 
     print(" Attempt to assign priority categories using available infra layers (local or OSM)...")
     infra_files = {}
-    for name in ["schools", "hospitals", "medical_centers", "industrial", "residential", "command_centers"]:
-        p = RAW_DIR / f"{name}.geojson"
+    for name in ["schools_clean", "hospitals_clean", "medical_centers_clean", "industrial_clean", "residential_clean", "command_centers_clean"]:
+        p = CLEANED_DIR / f"{name}.geojson"
         if p.exists():
             infra_files[name] = str(p)
     I_df = assign_priority_to_I(I_df, infra_files, buffer_m=config.get('infra_buffer_m', 1500))

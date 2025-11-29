@@ -5,17 +5,19 @@ from pathlib import Path
 # Utils
 from src.utils.io_utils import read_yaml
 
-# Preprocessing modules
-from src.preprocessing.data_preparation.data_cleaning import main as data_cleaning
+# Stage 1 - Data Cleaning
+from src.preprocessing.data_preparation.data_cleaning import run_cleaning_pipeline
+
+# Stage 2-4 - Preprocessing
 from src.preprocessing.bts_generation.generate_bts_network import main as generate_bts_network
 from src.preprocessing.cow_generation.cow_dataset_generator import generate_cow_dataset
-from src.preprocessing.damage_simulation.generate_damage_scenario import main as generate_damage_scenario
+from src.preprocessing.damage_bts.generate_damage_scenario import main as generate_damage_scenario
 from src.preprocessing.I_J_generation.feature_extraction_final import main as feature_extraction_final
 from src.preprocessing.I_J_generation.feature_extraction import main as feature_extraction
 from src.preprocessing.I_J_generation.feature_extraction_optimize_A import main as feature_extraction_optimize_A
 from src.preprocessing.I_J_generation.feature_extraction_optimize_B import main as feature_extraction_optimize_B
 from src.preprocessing.I_J_generation.feature_extraction_A import main as feature_extraction_A
-from src.preprocessing.travel_cost.compute_travel_costs import compute_travel_matrix
+from src.preprocessing.travel_cost.compute_travel_costs_A import compute_travel_matrix
 
 # Optimization
 # from src.optimization import solver_milp
@@ -33,40 +35,41 @@ def run_pipeline(config_path):
     cfg = read_yaml(config_path)
     method = cfg.get("method", "MILP").upper()
 
-    print("1) Preprocessing...")
-    # data_cleaning.main()
+    print("Stage 1: DATA CLEANING")
+    # run_cleaning_pipeline()
 
     print("2) Generating BTS network and Generating COW dataset...")
     # print("Generating COW dataset...")
     # generate_bts_network()
     # print("Generating COW dataset...")
-    # generate_cow_dataset(str(PROJECT_ROOT / "data" / "raw"))
+    # generate_cow_dataset(str(PROJECT_ROOT / "data" / "processed"))
 
     print("3) Generating damage scenario...")
-    # generate_damage_scenario.main(
-    #     str(PROJECT_ROOT / "data" / "raw" / "bts_ga.csv"),
-    #     str(PROJECT_ROOT / "data" / "processed"),
+    # generate_damage_scenario(
+    #     str(PROJECT_ROOT / "data" / "processed" / "bts_network" / "bts_ga.csv"),
+    #     str(PROJECT_ROOT / "data" / "processed" / "damage_bts"),
     #     cfg['damage_rate'],
     #     cfg.get('seed', 42)
     # )
 
     print("4) Feature extraction...")
-    feature_extraction_final(cfg, str(PROJECT_ROOT / "data" / "processed"))
-    # feature_extraction.main(cfg, str(PROJECT_ROOT / "data" / "processed"))
-    # feature_extraction_A.main(cfg, str(PROJECT_ROOT / "data" / "processed"))
-    # feature_extraction_optimize_A.main(cfg, str(PROJECT_ROOT / "data" / "processed"))
-    # feature_extraction_optimize_B.main(cfg, str(PROJECT_ROOT / "data" / "processed"))
+    # feature_extraction_final(cfg, str(PROJECT_ROOT / "data" / "processed" / "position_I_J"))
+    # feature_extraction(cfg, str(PROJECT_ROOT / "data" / "processed" / "position_I_J"))
+    # feature_extraction_A(cfg, str(PROJECT_ROOT / "data" / "processed" / "position_I_J"))
+    # feature_extraction_optimize_A(cfg, str(PROJECT_ROOT / "data" / "processed" / "position_I_J"))
+    # feature_extraction_optimize_B(cfg, str(PROJECT_ROOT / "data" / "processed" / "position_I_J"))
 
     print("5) Computing travel time & cost matrix...")
     # compute_travel_matrix(
-    #     cow_csv=str(PROJECT_ROOT / "data/raw/cow_dataset.csv"),
-    #     site_csv=str(PROJECT_ROOT / "data/processed/J_sites.csv"),
-    #     roads_path=str(PROJECT_ROOT / "data/raw/roads_hue.geojson"),
-    #     output_csv=str(PROJECT_ROOT / "data/processed/travel_cost_matrix_A.csv")
+    #     cow_csv=str(PROJECT_ROOT / "data/processed/cow/cow_dataset.csv"),
+    #     site_csv=str(PROJECT_ROOT / "data/processed/position_I_J/J_sites.csv"),
+    #     roads_path=str(PROJECT_ROOT / "data/cleaned/roads_hue_clean.geojson"),
+    #     output_csv=str(PROJECT_ROOT / "data/processed/travel_cost/travel_cost_matrix_A.csv")
     # )
 
+    print("6) Solving optimization problem...")
     # if method == "MILP":
-    #     # print("5) Solving with MILP (Phương pháp 1)...")
+    #     # print("6) Solving with MILP (Phương pháp 1)...")
     #     # out = solver_milp.solve_milp(config_path, str(PROJECT_ROOT / "data" / "processed"))
     #     print("6) Solving with MILP (Phương pháp 1 - PuLP Lexicographic)...")
     #     out = milp_lexi_solve(
@@ -99,17 +102,17 @@ def run_pipeline(config_path):
     #
     # else:
     #     raise ValueError(f"Unknown method '{method}'. Must be 'MILP' or 'GA_PSO'.")
-    #
-    # # Compute population coverage report
-    # print("7) Computing population coverage (outage / COW coverage)...")
+
+    # Compute population coverage report
+    print("7) Computing population coverage (outage / COW coverage)...")
     # try:
     #     summary_cov = main_compute_all(method=method)
     #     print("Coverage summary:", summary_cov)
     # except Exception as e:
     #     print("Coverage computation failed:", e)
-    #
-    # #  Visualization
-    # print("8) Running simulation scenario...")
+
+    #  Visualization
+    print("8) Running simulation scenario...")
     # if method == "MILP":
     #     if cfg["milp"]["simulation"]["enable"]:
     #         run_simulation_scenario("MILP")

@@ -23,19 +23,20 @@ import logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DATA_DIR = PROJECT_ROOT / "data"
+PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
+CLEANED_DIR = PROJECT_ROOT / "data" / "cleaned"
 OUT_DIR = PROJECT_ROOT / "outputs"
 
 # 1. BẢN ĐỒ TƯƠNG TÁC - DÙNG CHUNG CHO CẢ 2 PHƯƠNG PHÁP
 def create_interactive_map(method: str):
     """Sinh bản đồ tương tác hiển thị kết quả tối ưu."""
-    boundary = gpd.read_file(DATA_DIR / "raw" / "hue_boundary.geojson")
+    boundary = gpd.read_file(CLEANED_DIR / "hue_boundary_clean.geojson")
     centroid = boundary.geometry.unary_union.centroid
 
-    I_points = pd.read_csv(DATA_DIR / "processed" / "I_points.csv")
-    J_sites = pd.read_csv(DATA_DIR / "processed" / "J_sites.csv")
-    COWs = pd.read_csv(DATA_DIR / "raw" / "cow_dataset.csv")
-    BTS = pd.read_csv(DATA_DIR / "raw" / "bts_ga.csv")
+    I_points = pd.read_csv(PROCESSED_DIR / "position_I_J" / "I_points.csv")
+    J_sites = pd.read_csv(PROCESSED_DIR / "position_I_J" / "J_sites.csv")
+    COWs = pd.read_csv(PROCESSED_DIR / "cow" / "cow_dataset.csv")
+    BTS = pd.read_csv(PROCESSED_DIR / "bts_network" / "bts_ga.csv")
 
     if method == "MILP":
         result_path = OUT_DIR / "results" / "milp_solution_summary.json"
@@ -46,7 +47,7 @@ def create_interactive_map(method: str):
         chosen_site_ids = set(result.get("chosen_site_ids", []))
         map_name = "milp_dashboard.html"
     else:
-        result_path = OUT_DIR / "results" / "ga_pso_summary.json"
+        result_path = OUT_DIR / "results" / "ga_pso_solution_summary.json"
         if not result_path.exists():
             logging.error("Không tìm thấy kết quả GA–PSO.")
             return None
@@ -176,9 +177,9 @@ def create_interactive_map(method: str):
 # 2. BẢN ĐỒ TĨNH - VẼ VÙNG PHỦ, CÁC SITE
 def plot_static_result(method: str):
     """Sinh bản đồ tĩnh so sánh giữa MILP và GA–PSO."""
-    i_csv = DATA_DIR / "processed" / "I_points.csv"
-    j_csv = DATA_DIR / "processed" / "J_sites.csv"
-    boundary_path = DATA_DIR / "raw" / "hue_boundary.geojson"
+    i_csv = PROCESSED_DIR / "position_I_J" / "I_points.csv"
+    j_csv = PROCESSED_DIR / "position_I_J" / "J_sites.csv"
+    boundary_path = CLEANED_DIR / "hue_boundary_clean.geojson"
 
     pts = pd.read_csv(i_csv)
     sites = pd.read_csv(j_csv)

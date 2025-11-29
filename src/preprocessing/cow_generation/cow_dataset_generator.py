@@ -77,7 +77,7 @@ def generate_cow_dataset(output_folder: str):
     df = assign_cows_to_bases()
 
     os.makedirs(output_folder, exist_ok=True)
-    out_csv = os.path.join(output_folder, "cow_dataset.csv")
+    out_csv = os.path.join(output_folder, "cow", "cow_dataset.csv")
 
     df.to_csv(out_csv, index=False)
 

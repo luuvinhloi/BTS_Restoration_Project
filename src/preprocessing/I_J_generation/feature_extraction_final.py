@@ -43,13 +43,13 @@ if not DATA_DIR.exists():
     alt = _file.parents[2] / "data"
     if alt.exists():
         DATA_DIR = alt
-RAW_DIR = DATA_DIR / "raw"
-PROCESSED_DIR = DATA_DIR / "processed"
+CLEANED_DIR = DATA_DIR / "cleaned"
+DAMAGE_BTS_DIR = DATA_DIR / "processed" / "damage_bts"
 
 # ---------------------- Helpers ----------------------
-def _read_bts_files(processed_dir: Path = PROCESSED_DIR):
-    active_path = processed_dir / "active_bts.csv"
-    failed_path = processed_dir / "failed_bts.csv"
+def _read_bts_files(damage_bts_dir: Path = DAMAGE_BTS_DIR):
+    active_path = damage_bts_dir / "active_bts.csv"
+    failed_path = damage_bts_dir / "failed_bts.csv"
     active = pd.read_csv(active_path) if active_path.exists() else pd.DataFrame()
     failed = pd.read_csv(failed_path) if failed_path.exists() else pd.DataFrame()
     return active, failed
@@ -445,7 +445,7 @@ def generate_J_candidates(
     # spacing chosen so that medium -> ~500 pts; spacing_m adjustable.
     if boundary_gdf is None:
         try:
-            boundary_gdf = read_geojson(str(RAW_DIR / "hue_boundary.geojson"))
+            boundary_gdf = read_geojson(str(CLEANED_DIR / "hue_boundary_clean.geojson"))
         except Exception:
             boundary_gdf = None
 
@@ -759,13 +759,13 @@ def main(config: dict, out_dir: str or Path):
         n_global_samples = int(global_sampling_level)
 
     # load inputs
-    boundary = read_geojson(str(RAW_DIR / "hue_boundary.geojson"))
-    pop_tif = str(RAW_DIR / "pop_hue.tif")
-    slope_tif = str(RAW_DIR / "slope_hue.tif")
-    roads = read_geojson(str(RAW_DIR / "roads_hue.geojson"))
-    water = read_geojson(str(RAW_DIR / "water_hue.geojson"))
+    boundary = gpd.read_file(CLEANED_DIR / "hue_boundary_clean.geojson")
+    pop_tif = str(CLEANED_DIR / "pop_hue_clean.tif")
+    slope_tif = str(CLEANED_DIR / "slope_hue_clean.tif")
+    roads = read_geojson(str(CLEANED_DIR / "roads_hue_clean.geojson"))
+    water = read_geojson(str(CLEANED_DIR / "water_hue_clean.geojson"))
 
-    active_bts, failed_bts = _read_bts_files(PROCESSED_DIR)
+    active_bts, failed_bts = _read_bts_files(DAMAGE_BTS_DIR)
 
     np.random.seed(seed); random.seed(seed)
 
@@ -843,8 +843,8 @@ def main(config: dict, out_dir: str or Path):
 
     print("4) Assign priorities to I using infra layers if present...")
     infra_files = {}
-    for name in ["schools", "hospitals", "medical_centers", "industrial", "residential", "command_centers"]:
-        p = RAW_DIR / f"{name}.geojson"
+    for name in ["schools_clean", "hospitals_clean", "medical_centers_clean", "industrial_clean", "residential_clean", "command_centers_clean"]:
+        p = CLEANED_DIR / f"{name}.geojson"
         if p.exists():
             infra_files[name] = str(p)
     I_df = assign_priority_to_I(I_df, infra_files, buffer_m=fe_cfg.get('infra_buffer_m', 1500))
@@ -906,7 +906,6 @@ def main(config: dict, out_dir: str or Path):
                 J_df["priority_weight"] = pweights
                 J_df["priority_category"] = pcats
                 # compute approximate pop covered (recompute with pop KDTree)
-                # (we can compute properly but it costs; for now compute pop per selected J)
                 try:
                     pop_proj = pop_uncovered.to_crs(epsg=3857)
                     pop_coords = np.vstack([pop_proj.geometry.x.values, pop_proj.geometry.y.values]).T
@@ -1006,5 +1005,5 @@ if __name__ == "__main__":
         cfg = cfg_all.get("feature_extraction", {})
     else:
         cfg = {}
-    out = proj / "data" / "processed"
+    out = proj / "data" / "processed" / "position_I_J"
     main(cfg, out)

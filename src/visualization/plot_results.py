@@ -45,10 +45,10 @@ def main():
     # load result summary
     res = json.load(open(PROJECT_ROOT / "outputs" / "results" / "milp_solution_summary.json"))
     chosen_ids = res['chosen_site_ids']
-    plot_sites_and_population(PROJECT_ROOT / "data" / "processed" / "I_points.csv",
-                              PROJECT_ROOT / "data" / "processed" / "J_sites.csv",
+    plot_sites_and_population(PROJECT_ROOT / "data" / "processed" / "position_I_J" / "I_points.csv",
+                              PROJECT_ROOT / "data" / "processed" / "position_I_J" / "J_sites.csv",
                               chosen_ids,
-                              PROJECT_ROOT / "data" / "raw" / "hue_boundary.geojson",
+                              PROJECT_ROOT / "data" / "cleaned" / "hue_boundary_clean.geojson",
                               PROJECT_ROOT / "outputs" / "maps" / "milp_map.png")
 
 if __name__ == "__main__":

@@ -37,14 +37,14 @@ def read_params(params_path):
 def load_data(base_dir):
     """
     Expect files:
-      - data/raw/cow_dataset.csv
+      - data/processed/cow_dataset.csv
       - data/processed/J_sites.csv
       - data/processed/travel_cost_matrix_A.csv
     """
     base_dir = Path(base_dir)
-    cow_csv = base_dir.parent / "raw" / "cow_dataset.csv"
-    j_sites_csv = base_dir / "J_sites.csv"
-    travel_csv = base_dir / "travel_cost_matrix_A.csv"
+    cow_csv = base_dir / "cow" / "cow_dataset.csv"
+    j_sites_csv = base_dir / "position_I_J" / "J_sites.csv"
+    travel_csv = base_dir / "travel_cost" / "travel_cost_matrix_A.csv"
 
     cows_df = pd.read_csv(cow_csv, dtype=str).fillna("")
     # coerce numeric where needed

@@ -17,7 +17,6 @@ FUEL_COST_PER_KM = (FUEL_CONSUMPTION_L_PER_100KM / 100.0) * FUEL_PRICE_VND_PER_L
 
 EARTH_RADIUS_M = 6371000.0
 
-
 def haversine_distance_m(lat1, lon1, lat2, lon2):
     phi1 = math.radians(lat1)
     phi2 = math.radians(lat2)
@@ -27,18 +26,15 @@ def haversine_distance_m(lat1, lon1, lat2, lon2):
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     return EARTH_RADIUS_M * c
 
-
 def save_graph_pickle(G, path):
     """Save graph safely using pickle."""
     with open(path, "wb") as f:
         pickle.dump(G, f, protocol=pickle.HIGHEST_PROTOCOL)
 
-
 def load_graph_pickle(path):
     """Load graph safely using pickle."""
     with open(path, "rb") as f:
         return pickle.load(f)
-
 
 def build_graph_from_geojson(roads_geojson_path, cache_path=None, overwrite_cache=False):
     """
@@ -116,7 +112,6 @@ def build_graph_from_geojson(roads_geojson_path, cache_path=None, overwrite_cach
 
     return G
 
-
 def build_balltree(G):
     node_ids = []
     coords_rad = []
@@ -132,13 +127,11 @@ def build_balltree(G):
 
     return tree, np.array(node_ids), coords_rad
 
-
 def nearest_node(tree, node_ids, lon, lat):
     point = np.array([[math.radians(lat), math.radians(lon)]])
     dist_rad, idx = tree.query(point, k=1)
     nid = node_ids[idx[0][0]]
     return int(nid)
-
 
 def compute_time_cost(distance_km, speed_kmh):
     speed = max(float(speed_kmh), 1.0)
@@ -146,13 +139,12 @@ def compute_time_cost(distance_km, speed_kmh):
     cost = distance_km * FUEL_COST_PER_KM
     return time_hr, cost
 
-
 def compute_travel_matrix(
     cow_csv,
     site_csv,
     roads_path,
     output_csv,
-    cache_graph_path="data/processed/roads_graph.gpickle",
+    cache_graph_path="data/processed/travel_cost/roads_graph.gpickle",
     overwrite_cache=False
 ):
     print("     Loading CSVs...")

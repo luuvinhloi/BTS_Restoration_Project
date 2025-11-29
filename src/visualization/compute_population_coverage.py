@@ -27,20 +27,19 @@ import geopandas as gpd
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DATA_DIR = PROJECT_ROOT / "data"
-PROCESSED = DATA_DIR / "processed"
-RAW = DATA_DIR / "raw"
+PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
+CLEANED_DIR = PROJECT_ROOT / "data" / "cleaned"
 OUT_DIR = PROJECT_ROOT / "outputs" / "results"
 SUMMARY_DIR = OUT_DIR / "summary"
 SUMMARY_DIR.mkdir(parents=True, exist_ok=True)
 
-POP_RASTER = PROCESSED / "pop_hue_clipped.tif"
-FAILED_BTS = PROCESSED / "failed_bts.csv"
-ACTIVE_BTS = PROCESSED / "active_bts.csv"
-I_POINTS = PROCESSED / "I_points.csv"
-J_SITES = PROCESSED / "J_sites.csv"
-COWS = RAW / "cow_dataset.csv"
-BOUNDARY_GEOJSON = RAW / "hue_boundary.geojson"
+POP_RASTER = CLEANED_DIR / "pop_hue_clean.tif"
+FAILED_BTS = PROCESSED_DIR / "damage_bts" / "failed_bts.csv"
+ACTIVE_BTS = PROCESSED_DIR / "damage_bts" / "active_bts.csv"
+I_POINTS = PROCESSED_DIR / "position_I_J" / "I_points.csv"
+J_SITES = PROCESSED_DIR / "position_I_J" / "J_sites.csv"
+COWS = PROCESSED_DIR / "cow" / "cow_dataset.csv"
+BOUNDARY_GEOJSON = CLEANED_DIR / "hue_boundary_clean.geojson"
 
 GA_PSO_ASSIGN = OUT_DIR / "ga_pso_assignments.csv"
 MILP_ASSIGN = OUT_DIR / "milp_assignments.csv"

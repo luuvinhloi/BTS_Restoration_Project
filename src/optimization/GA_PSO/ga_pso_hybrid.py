@@ -3,7 +3,7 @@
 GA–PSO Hybrid solver for COW deployment (real-data version)
 
 This implementation:
-    - Uses actual input tables in data/processed: I_points.csv, J_sites.csv, cow_dataset.csv
+    - Uses actual input tables in data/processed/position_I_J: I_points.csv, J_sites.csv; data/processed/cow/cow_dataset.csv
     - Builds a road network graph from roads_hue.geojson and computes network shortest-path distances
     - Precomputes travel_time and travel_cost matrices for each COW -> each candidate site
     - Builds coverage matrices per COW type (using haversine distance + simple filters)
@@ -27,7 +27,6 @@ from networkx.algorithms.shortest_paths.weighted import single_source_dijkstra_p
 
 # Logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-
 
 # Geospatial helper functions
 def haversine_distance_m(lat1, lon1, lat2, lon2):
@@ -404,9 +403,9 @@ def ga_pso_hybrid_main(processed_data_dir: str,
     outputs.mkdir(parents=True, exist_ok=True)
 
     # 1) Read input tables (real data)
-    I_df = pd.read_csv(processed / "I_points_B.csv")      # columns: site_id, latitude, longitude, pop, ...
-    J_df = pd.read_csv(processed / "J_sites_B.csv")       # columns: site_id, latitude, longitude, slope, dist_to_road_m, in_water, ...
-    cow_df_full = pd.read_csv(processed.parent / "raw" / "cow_dataset.csv")  # using raw location of each COW
+    I_df = pd.read_csv(processed / "position_I_J" / "I_points_B.csv")      # columns: site_id, latitude, longitude, pop, ...
+    J_df = pd.read_csv(processed / "position_I_J" / "J_sites_B.csv")       # columns: site_id, latitude, longitude, slope, dist_to_road_m, in_water, ...
+    cow_df_full = pd.read_csv(processed / "cow" / "cow_dataset.csv")  # using raw location of each COW
 
     # defensive checks
     assert {"latitude", "longitude"}.issubset(set(I_df.columns)), "I_points.csv missing lat/lon"
@@ -463,8 +462,8 @@ def ga_pso_hybrid_main(processed_data_dir: str,
     logging.info(f"Depot capacities: {depot_capacity_map}")
 
     # 2) Build road graph from roads_hue.geojson (real network)
-    raw_dir = processed.parent / "raw"
-    roads_path = raw_dir / "roads_hue.geojson"
+    cleaned_dir = processed.parent / "cleaned"
+    roads_path = cleaned_dir / "roads_hue_clean.geojson"
     if not roads_path.exists():
         raise FileNotFoundError(f"{roads_path} not found. Road network required for routing.")
     roads_gdf = gpd.read_file(roads_path)

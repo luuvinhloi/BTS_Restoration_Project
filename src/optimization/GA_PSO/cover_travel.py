@@ -16,10 +16,10 @@ def load_inputs(processed_dir: str, raw_dir: str, params: dict):
     I_name = params.get("I_points_file", "I_points.csv")
     J_name = params.get("J_sites_file", "J_sites.csv")
     travel_name = params.get("travel_matrix_file", "travel_cost_matrix_A.csv")
-    I_path = processed / I_name
-    J_path = processed / J_name
-    cow_path = raw / "cow_dataset.csv"
-    travel_path = processed / travel_name
+    I_path = processed / "position_I_J" / I_name
+    J_path = processed / "position_I_J" / J_name
+    cow_path = processed / "cow" / "cow_dataset.csv"
+    travel_path = processed / "travel_cost" / travel_name
 
     if not I_path.exists():
         raise FileNotFoundError(f"I points missing: {I_path}")

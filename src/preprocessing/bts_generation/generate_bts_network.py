@@ -21,12 +21,12 @@ import warnings
 warnings.filterwarnings("ignore")
 
 #  CONFIG
-BOUNDARY_GEOJSON = "data/raw/hue_boundary.geojson"
-POP_RASTER = "data/raw/pop_hue.tif"
-DEM_RASTER = "data/raw/elev_hue.tif"
-SLOPE_RASTER = "data/raw/slope_hue.tif"
+BOUNDARY_GEOJSON = "data/cleaned/hue_boundary_clean.geojson"
+POP_RASTER = "data/cleaned/pop_hue_clean.tif"
+DEM_RASTER = "data/cleaned/elev_hue_clean.tif"
+SLOPE_RASTER = "data/cleaned/slope_hue_clean.tif"
 
-OUTPUT_DIR = "data/raw"
+OUTPUT_DIR = "data/processed/bts_network"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # Targets

@@ -32,6 +32,7 @@ outputs/*
 *.aux
 *.xml
 *.tif.aux.xml
+*.gpickle
 
 # Jupyter notebooks checkpoints
 .ipynb_checkpoints/
