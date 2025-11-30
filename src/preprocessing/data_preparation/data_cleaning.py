@@ -21,6 +21,7 @@ import rasterio
 from rasterio.mask import mask
 from shapely.geometry import Point
 
+# Project-level data dirs (3 levels up from src/.../data_cleaning.py -> project root)
 RAW_DIR = Path(__file__).resolve().parents[3] / "data" / "raw"
 CLEAN_DIR = Path(__file__).resolve().parents[3] / "data" / "cleaned"
 CLEAN_DIR.mkdir(parents=True, exist_ok=True)
@@ -32,7 +33,10 @@ def ensure_crs(gdf, epsg=4326):
         gdf = gdf.set_crs(epsg=epsg)
     else:
         # if it's not the target, convert
-        if gdf.crs.to_epsg() != epsg:
+        try:
+            if gdf.crs.to_epsg() != epsg:
+                gdf = gdf.to_crs(epsg=epsg)
+        except Exception:
             gdf = gdf.to_crs(epsg=epsg)
     return gdf
 
@@ -56,9 +60,7 @@ def fix_invalid_geometries(gdf):
                 return g
             # buffer(0) often fixes simple invalid geometries
             repaired = g.buffer(0)
-            if repaired.is_valid:
-                return repaired
-            return repaired  # may still be invalid but non-null
+            return repaired
         except Exception:
             return None
 
@@ -101,8 +103,6 @@ def standardize_schema_points(gdf, id_field="id", type_field="type"):
         raise ValueError("GeoDataFrame has no geometry column.")
 
     # Use centroid for non-point geometries to extract lon/lat reliably
-    # centroid returns a Point for any geometry.
-    # If geometry is already Point, centroid is that point itself.
     centroid_series = gdf.geometry.centroid
 
     gdf[id_field] = gdf.index.astype(int)
@@ -114,9 +114,36 @@ def standardize_schema_points(gdf, id_field="id", type_field="type"):
         gdf[type_field] = "unknown"
     return gdf
 
+def standardize_schema_polygons(gdf, id_field="id", type_field="type"):
+    """
+    Standardize polygon schema:
+    - add id, type (if missing)
+    - compute centroid lon/lat and area_m (using metric projection)
+    """
+    gdf = gdf.reset_index(drop=True)
+    gdf[id_field] = gdf.index.astype(int)
+    if type_field not in gdf:
+        gdf[type_field] = "unknown"
+
+    # compute centroid lon/lat in EPSG:4326 (safe because gdf is in 4326)
+    centroids = gdf.geometry.centroid
+    gdf["lon"] = centroids.x
+    gdf["lat"] = centroids.y
+
+    # compute area in meters using metric projection
+    try:
+        g_metric = project_to_metric(gdf)
+        gdf["area_m2"] = g_metric.geometry.area
+    except Exception:
+        gdf["area_m2"] = None
+
+    return gdf
+
 # Cleaning tasks for each dataset
 def clean_boundary():
     path = RAW_DIR / "hue_boundary.geojson"
+    if not path.exists():
+        raise FileNotFoundError(f"Boundary file not found at {path}")
     gdf = gpd.read_file(path)
     gdf = ensure_crs(gdf)
     gdf = fix_invalid_geometries(gdf)
@@ -126,6 +153,13 @@ def clean_boundary():
 
 def clean_roads(boundary):
     path = RAW_DIR / "roads_hue.geojson"
+    if not path.exists():
+        # create an empty template
+        cols = ["edge_id", "length_m", "speed_kmh", "geometry"]
+        empty = gpd.GeoDataFrame(columns=cols, geometry="geometry", crs=boundary.crs)
+        empty.to_file(CLEAN_DIR / "roads_hue_clean.geojson", driver="GeoJSON")
+        return empty
+
     gdf = gpd.read_file(path)
     gdf = ensure_crs(gdf)
     gdf = fix_invalid_geometries(gdf)
@@ -135,11 +169,10 @@ def clean_roads(boundary):
         try:
             gdf = gpd.overlay(gdf, boundary, how="intersection")
         except Exception:
-            # fallback to spatial join clip
+            # fallback to spatial filter
             gdf = gdf[gdf.geometry.intersects(boundary.unary_union)]
 
     if gdf.empty:
-        # produce empty template with expected columns
         cols = ["edge_id", "length_m", "speed_kmh", "geometry"]
         empty = gpd.GeoDataFrame(columns=cols, geometry="geometry", crs=boundary.crs)
         empty.to_file(CLEAN_DIR / "roads_hue_clean.geojson", driver="GeoJSON")
@@ -160,13 +193,19 @@ def clean_roads(boundary):
 
 def clean_point_layer(filename, output_name, boundary):
     src = RAW_DIR / filename
+    if not src.exists():
+        # export empty template
+        empty = gpd.GeoDataFrame(columns=["id", "lon", "lat", "type", "geometry"], geometry="geometry", crs=boundary.crs)
+        empty.to_file(CLEAN_DIR / output_name, driver="GeoJSON")
+        return empty
+
     gdf = gpd.read_file(src)
     gdf = ensure_crs(gdf)
     gdf = fix_invalid_geometries(gdf)
 
     # intersect with boundary safely
     if gdf.empty:
-        empty = gpd.GeoDataFrame(columns=["geometry"], geometry="geometry", crs=boundary.crs)
+        empty = gpd.GeoDataFrame(columns=["id", "lon", "lat", "type", "geometry"], geometry="geometry", crs=boundary.crs)
         empty.to_file(CLEAN_DIR / output_name, driver="GeoJSON")
         return empty
 
@@ -176,7 +215,6 @@ def clean_point_layer(filename, output_name, boundary):
         clipped = gdf[gdf.geometry.intersects(boundary.unary_union)]
 
     if clipped.empty:
-        # export empty template with standardized schema
         empty = gpd.GeoDataFrame(columns=["id", "lon", "lat", "type", "geometry"], geometry="geometry", crs=boundary.crs)
         empty.to_file(CLEAN_DIR / output_name, driver="GeoJSON")
         return empty
@@ -185,9 +223,48 @@ def clean_point_layer(filename, output_name, boundary):
     clipped.to_file(CLEAN_DIR / output_name, driver="GeoJSON")
     return clipped
 
+def clean_polygon_layer(filename, output_name, boundary, compute_area=True):
+    """
+    Clean polygon layers (e.g., industrial zones, water bodies).
+    - ensures CRS, fixes geometries
+    - intersects/crops to boundary
+    - standardizes id/type, computes centroid lon/lat and area_m2
+    """
+    src = RAW_DIR / filename
+    if not src.exists():
+        empty = gpd.GeoDataFrame(columns=["id", "type", "lon", "lat", "area_m2", "geometry"], geometry="geometry", crs=boundary.crs)
+        empty.to_file(CLEAN_DIR / output_name, driver="GeoJSON")
+        return empty
+
+    gdf = gpd.read_file(src)
+    gdf = ensure_crs(gdf)
+    gdf = fix_invalid_geometries(gdf)
+
+    if gdf.empty:
+        empty = gpd.GeoDataFrame(columns=["id", "type", "lon", "lat", "area_m2", "geometry"], geometry="geometry", crs=boundary.crs)
+        empty.to_file(CLEAN_DIR / output_name, driver="GeoJSON")
+        return empty
+
+    try:
+        clipped = gpd.overlay(gdf, boundary, how="intersection")
+    except Exception:
+        clipped = gdf[gdf.geometry.intersects(boundary.unary_union)]
+
+    if clipped.empty:
+        empty = gpd.GeoDataFrame(columns=["id", "type", "lon", "lat", "area_m2", "geometry"], geometry="geometry", crs=boundary.crs)
+        empty.to_file(CLEAN_DIR / output_name, driver="GeoJSON")
+        return empty
+
+    # standardize and compute area
+    clipped = standardize_schema_polygons(clipped)
+    clipped.to_file(CLEAN_DIR / output_name, driver="GeoJSON")
+    return clipped
+
 def clean_raster(name, boundary):
     """Clip các raster DEM, slope, population."""
     src = RAW_DIR / name
+    if not src.exists():
+        raise FileNotFoundError(f"Raster {name} not found at {src}")
     out = CLEAN_DIR / name.replace(".tif", "_clean.tif")
     clip_raster(src, boundary, out)
     return out
@@ -210,15 +287,22 @@ def run_cleaning_pipeline():
     # 2) Vector layers
     clean_roads(boundary)
 
+    # existing point layers
     schools = clean_point_layer("schools.geojson", "schools_clean.geojson", boundary)
     hospitals = clean_point_layer("hospitals.geojson", "hospitals_clean.geojson", boundary)
     residential = clean_point_layer("residential.geojson", "residential_clean.geojson", boundary)
     command_centers = clean_point_layer("command_centers.geojson", "command_centers_clean.geojson", boundary)
+    medical = clean_point_layer("medical_centers.geojson", "medical_centers_clean.geojson", boundary)
+    industrial = clean_polygon_layer("industrial.geojson", "industrial_clean.geojson", boundary)
+    water = clean_polygon_layer("water_hue.geojson", "water_hue_clean.geojson", boundary)
 
     # 3) Raster data
-    clean_raster("elev_hue.tif", boundary)
-    clean_raster("slope_hue.tif", boundary)
-    clean_raster("pop_hue.tif", boundary)
+    # Only attempt to clean rasters if they exist
+    for rname in ["elev_hue.tif", "slope_hue.tif", "pop_hue.tif"]:
+        try:
+            clean_raster(rname, boundary)
+        except FileNotFoundError as e:
+            print(f"[WARN] {e}")
 
     print("DATA CLEANING COMPLETED")
     print("Cleaned data saved at:", CLEAN_DIR)
