@@ -23,3 +23,6 @@ rtree
 scikit-learn
 PyYAML
 tqdm
+rasterstats
+pysheds>=0.1    # optional; needed if flow_accumulation.enabled = true
+richdem         # optional alternative (not required)

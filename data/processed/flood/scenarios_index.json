@@ -1,0 +1,50 @@
+{
+  "0.5": {
+    "scenario": 0.5,
+    "rainfall": 0.5,
+    "timestamp": "2025-12-01T08:18:52.210447Z",
+    "outputs": {
+      "river": "D:/luuvinhloi/PycharmProjects/BTS_Restoration_Project/data/processed/flood\\river_0.5.tif",
+      "pluvial": "D:/luuvinhloi/PycharmProjects/BTS_Restoration_Project/data/processed/flood\\pluvial_0.5.tif",
+      "combined": "D:/luuvinhloi/PycharmProjects/BTS_Restoration_Project/data/processed/flood\\combined_0.5.tif",
+      "polygons": "D:/luuvinhloi/PycharmProjects/BTS_Restoration_Project/data/processed/flood\\flood_0.5.geojson",
+      "roads": "D:/luuvinhloi/PycharmProjects/BTS_Restoration_Project/data/processed/flood\\roads_0.5.geojson"
+    }
+  },
+  "1.0": {
+    "scenario": 1.0,
+    "rainfall": 0.5,
+    "timestamp": "2025-12-01T08:20:50.643008Z",
+    "outputs": {
+      "river": "D:/luuvinhloi/PycharmProjects/BTS_Restoration_Project/data/processed/flood\\river_1.0.tif",
+      "pluvial": "D:/luuvinhloi/PycharmProjects/BTS_Restoration_Project/data/processed/flood\\pluvial_1.0.tif",
+      "combined": "D:/luuvinhloi/PycharmProjects/BTS_Restoration_Project/data/processed/flood\\combined_1.0.tif",
+      "polygons": "D:/luuvinhloi/PycharmProjects/BTS_Restoration_Project/data/processed/flood\\flood_1.0.geojson",
+      "roads": "D:/luuvinhloi/PycharmProjects/BTS_Restoration_Project/data/processed/flood\\roads_1.0.geojson"
+    }
+  },
+  "1.5": {
+    "scenario": 1.5,
+    "rainfall": 0.5,
+    "timestamp": "2025-12-01T08:22:53.944328Z",
+    "outputs": {
+      "river": "D:/luuvinhloi/PycharmProjects/BTS_Restoration_Project/data/processed/flood\\river_1.5.tif",
+      "pluvial": "D:/luuvinhloi/PycharmProjects/BTS_Restoration_Project/data/processed/flood\\pluvial_1.5.tif",
+      "combined": "D:/luuvinhloi/PycharmProjects/BTS_Restoration_Project/data/processed/flood\\combined_1.5.tif",
+      "polygons": "D:/luuvinhloi/PycharmProjects/BTS_Restoration_Project/data/processed/flood\\flood_1.5.geojson",
+      "roads": "D:/luuvinhloi/PycharmProjects/BTS_Restoration_Project/data/processed/flood\\roads_1.5.geojson"
+    }
+  },
+  "2.0": {
+    "scenario": 2.0,
+    "rainfall": 0.5,
+    "timestamp": "2025-12-01T08:24:57.786008Z",
+    "outputs": {
+      "river": "D:/luuvinhloi/PycharmProjects/BTS_Restoration_Project/data/processed/flood\\river_2.0.tif",
+      "pluvial": "D:/luuvinhloi/PycharmProjects/BTS_Restoration_Project/data/processed/flood\\pluvial_2.0.tif",
+      "combined": "D:/luuvinhloi/PycharmProjects/BTS_Restoration_Project/data/processed/flood\\combined_2.0.tif",
+      "polygons": "D:/luuvinhloi/PycharmProjects/BTS_Restoration_Project/data/processed/flood\\flood_2.0.geojson",
+      "roads": "D:/luuvinhloi/PycharmProjects/BTS_Restoration_Project/data/processed/flood\\roads_2.0.geojson"
+    }
+  }
+}

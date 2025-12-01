@@ -8,6 +8,9 @@ from src.utils.io_utils import read_yaml
 # Stage 1 - Data Cleaning
 from src.preprocessing.data_preparation.data_cleaning import run_cleaning_pipeline
 
+# Stage 2 - Flood simulation
+from src.preprocessing.flood_generation.run_all_scenarios import run_flood_simulation
+
 # Stage 2-4 - Preprocessing
 from src.preprocessing.bts_generation.generate_bts_network import main as generate_bts_network
 from src.preprocessing.cow_generation.cow_dataset_generator import generate_cow_dataset
@@ -37,6 +40,20 @@ def run_pipeline(config_path):
 
     print("Stage 1: DATA CLEANING")
     # run_cleaning_pipeline()
+
+    print("Stage 2: FLOOD SIMULATION")
+    try:
+        flood_config_path = str(PROJECT_ROOT / "src" / "preprocessing" / "flood_generation" / "config_flood.yaml")
+        print(f"Loading flood config: {flood_config_path}")
+        print("Running combined A+B flood model (river stage + rainfall)...")
+
+        run_flood_simulation(flood_config_path)
+
+        print("Flood simulation completed successfully.")
+
+    except Exception as e:
+        print("Flood simulation FAILED:", e)
+        raise e
 
     print("2) Generating BTS network and Generating COW dataset...")
     # print("Generating COW dataset...")
