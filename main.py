@@ -32,6 +32,7 @@ from src.optimization.GA_PSO.ga_pso_hybrid_new import ga_pso_hybrid_main
 # Visualization
 from src.visualization.simulation_scenario import run_simulation_scenario
 from src.visualization.compute_population_coverage import main_compute_all
+from src.visualization.flood_visualization import main as run_flood_visualization
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 
@@ -44,7 +45,7 @@ def run_pipeline(config_path):
 
     print("Stage 2: FLOOD SIMULATION")
     # run_flood_simulation_A()
-    run_flood_simulation_B()
+    # run_flood_simulation_B()
 
     print("2) Generating BTS network and Generating COW dataset...")
     # print("Generating COW dataset...")
@@ -128,6 +129,9 @@ def run_pipeline(config_path):
     # elif method == "GA_PSO":
     #     if cfg["ga_pso"]["simulation"]["enable"]:
     #         run_simulation_scenario("GA_PSO")
+
+    print("Stage 9: FLOOD MAP VISUALIZATION")
+    run_flood_visualization()
 
     print("Pipeline finished successfully.")
 
