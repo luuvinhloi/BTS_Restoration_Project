@@ -6,7 +6,7 @@ from pathlib import Path
 from src.utils.io_utils import read_yaml
 
 # Stage 1: Data Clean
-from src.preprocessing.data_preparation.data_cleaning import run_cleaning_pipeline
+from src.preprocessing.data_preparation.data_cleaning import main as run_cleaning_pipeline
 
 # Stage 2: Generate BTS network, Generate COW dataset and Generate Backup Power dataset
 from src.preprocessing.bts_generation.generate_bts_network import main as generate_bts_network
@@ -40,6 +40,7 @@ from src.visualization.simulation_scenario import run_simulation_scenario
 from src.visualization.compute_population_coverage import main_compute_all
 from src.visualization.flood_visualization_A import run_flood_map_visualization_A
 from src.visualization.flood_visualization_B import run_flood_map_visualization_B
+from src.visualization.visualization_all import run_map_visualization_all
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 
@@ -79,7 +80,7 @@ def run_pipeline(config_path):
     # )
 
     print("Stage 5: Generate data sets I, J and Calculate travel time and costs")
-    feature_extraction_final(cfg, str(PROJECT_ROOT / "data" / "processed" / "position_I_J"))
+    # feature_extraction_final(cfg, str(PROJECT_ROOT / "data" / "processed" / "position_I_J"))
     # feature_extraction(cfg, str(PROJECT_ROOT / "data" / "processed" / "position_I_J"))
     # feature_extraction_A(cfg, str(PROJECT_ROOT / "data" / "processed" / "position_I_J"))
     # feature_extraction_optimize_A(cfg, str(PROJECT_ROOT / "data" / "processed" / "position_I_J"))
@@ -140,6 +141,8 @@ def run_pipeline(config_path):
     #         run_simulation_scenario("GA_PSO")
 
     # Compute population coverage report
+    run_map_visualization_all()
+
     print("Stage 8: Computing population coverage (outage / COW coverage)...")
     # try:
     #     summary_cov = main_compute_all(method=method)
