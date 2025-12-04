@@ -37,13 +37,15 @@ import networkx as nx
 # CONFIG
 # ------------------------
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
+DATA_DIR = PROJECT_ROOT / "data" / "processed"
+CLEAN_DIR = PROJECT_ROOT / "data" / "cleaned"
 
-ROADS_FILE = PROJECT_ROOT / "data" / "cleaned" / "roads_hue_clean.geojson"
-FLOOD_RASTER = PROJECT_ROOT / "data" / "processed" / "flood" / "flood_depth_combined_clean.tif"
-BOUNDARY_FILE = PROJECT_ROOT / "data" / "cleaned" / "hue_boundary_clean.geojson"
+ROADS_FILE = CLEAN_DIR / "roads_hue_clean.geojson"
+FLOOD_RASTER = DATA_DIR / "flood" / "flood_depth_combined_B_clean.tif"
+BOUNDARY_FILE = CLEAN_DIR / "hue_boundary_clean.geojson"
 
-OUT_GEOJSON = PROJECT_ROOT / "data" / "processed" / "road" / "roads_flooded.geojson"
-OUT_GRAPHML = PROJECT_ROOT / "data" / "processed" / "road" / "roads_flooded.graphml"
+OUT_GEOJSON = DATA_DIR / "road" / "roads_flooded.geojson"
+OUT_GRAPHML = DATA_DIR / "road" / "roads_flooded.graphml"
 
 DEPTH_THRESHOLD = 1.0  # >1.0 m => blocked (vehicle cannot pass)
 MIN_SEG_LEN_M = 0.5    # drop extremely short segments (meters)
