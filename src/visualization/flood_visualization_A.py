@@ -178,7 +178,7 @@ def _export_html(arr, bounds, boundary, water_mask):
 # ---------------------------------------------------------
 # PUBLIC ENTRY
 # ---------------------------------------------------------
-def run_flood_map_visualization():
+def run_flood_map_visualization_A():
     print("\n=== FLOOD MAP VISUALIZATION (CUSTOM HYDRO COLORS) START ===")
 
     arr, bounds, transform, crs = _load_raster()

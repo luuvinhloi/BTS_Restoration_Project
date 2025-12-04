@@ -1,25 +1,9 @@
 """
-flood_simulation.py
-Hydrologic flood-fill model + percentile-based flood depth allocation.
-
-Steps:
-1. Load DEM + water polygons + boundary.
-2. Rasterize water polygons.
-3. Perform hydrologic flood fill:
-      - Water spreads only to lower or equal elevation cells (hydrologic connectivity).
-4. The resulting floodable zone is REALISTIC (only valleys and plains).
-5. Inside floodable zone, assign flood levels using percentage rule:
-      - 20% no flood
-      - 30% 0.2m
-      - 30% 0.5m
-      - 10% 1.0m
-      - 10% 2.0m
-6. Outside floodable → depth = 0.0m
-7. Export:
-      - flood_mask_*.tif
-      - flood_depth_*.tif
-      - flood_depth_combined.tif
-      - flood_area_combined.geojson
+flood_simulation_B.py
+Hydrologic flood-fill model + percentile-based depth allocation.
+Now includes CLEANED OUTPUTS:
+- flood_depth_combined_B_clean.tif
+- flood_area_combined_B_clean.geojson
 """
 
 from pathlib import Path
@@ -46,13 +30,12 @@ DEM_PATH = CLEAN_DIR / "elev_hue_clean.tif"
 WATER_PATH = CLEAN_DIR / "water_hue_clean.geojson"
 BOUNDARY_PATH = CLEAN_DIR / "hue_boundary_clean.geojson"
 
-# Flood levels + percentages
 FLOOD_LEVELS = [0.0, 0.2, 0.5, 1.0, 2.0]
-FLOOD_PERCENT = [0.2, 0.3, 0.3, 0.1, 0.1]
+FLOOD_PERCENT = [0.2, 0.4, 0.2, 0.1, 0.1]
 
 
 # ============================================================
-# UTILITIES
+# HELPERS
 # ============================================================
 
 def ensure_dir(path):
@@ -61,50 +44,41 @@ def ensure_dir(path):
 
 def load_dem_clipped(dem_src, boundary_gdf):
     """Clip DEM by boundary polygon."""
-    boundary_geom = [boundary_gdf.unary_union]
-    dem_clip, transform = mask(dem_src, boundary_geom, crop=True)
-    return dem_clip[0], transform
+    geom = [boundary_gdf.unary_union]
+    arr, transform = mask(dem_src, geom, crop=True)
+    return arr[0], transform
 
 
-def rasterize_water(dem_shape, dem_transform, water_gdf):
-    """Rasterize water polygons into DEM grid."""
+def rasterize_water(shape_hw, transform, water_gdf):
+    """Rasterize water polygons -> DEM grid."""
     if water_gdf.empty:
-        return np.zeros(dem_shape, dtype=np.uint8)
+        return np.zeros(shape_hw, dtype=np.uint8)
 
     shapes_list = [(geom, 1) for geom in water_gdf.geometry if geom is not None]
-    if not shapes_list:
-        return np.zeros(dem_shape, dtype=np.uint8)
 
-    water_mask = rfeatures.rasterize(
+    return rfeatures.rasterize(
         shapes_list,
-        out_shape=dem_shape,
-        transform=dem_transform,
+        out_shape=shape_hw,
+        transform=transform,
         fill=0,
         dtype=np.uint8
     )
-    return water_mask
 
 
 def hydrologic_flood_fill(dem_array, water_mask):
     """
-    Hydrologic flood fill:
-    Water starts from initial water_mask (1) and spreads ONLY to neighbors
-    that have elevation <= current cell elevation.
-
-    Returns: floodable_mask (1 = can be flooded)
+    BFS propagation: water spreads only to neighbors with elevation <= current elevation.
     """
-
     h, w = dem_array.shape
     visited = np.zeros((h, w), dtype=np.uint8)
     q = deque()
 
-    # seed queue with all water pixels
-    water_pixels = np.argwhere(water_mask == 1)
-    for (r, c) in water_pixels:
+    # Seed queue
+    for r, c in np.argwhere(water_mask == 1):
         visited[r, c] = 1
         q.append((r, c))
 
-    # BFS hydrologic expansion
+    # 4-way adjacency
     dirs = [(-1,0),(1,0),(0,-1),(0,1)]
 
     while q:
@@ -114,112 +88,154 @@ def hydrologic_flood_fill(dem_array, water_mask):
         for dr, dc in dirs:
             rr, cc = r+dr, c+dc
             if 0 <= rr < h and 0 <= cc < w:
-                if visited[rr, cc] == 0:
-                    # hydrologic rule: water can move *downhill or flat*
-                    if dem_array[rr, cc] <= base_h:
-                        visited[rr, cc] = 1
-                        q.append((rr, cc))
+                if visited[rr, cc] == 0 and dem_array[rr, cc] <= base_h:
+                    visited[rr, cc] = 1
+                    q.append((rr, cc))
 
-    return visited  # 1=floodable, 0=not floodable
+    return visited
 
 
-def allocate_flood_by_percentile(dem_array, floodable_mask, percentages, levels):
-    """
-    Allocate flood depths only within floodable pixels.
-    Pixels sorted by elevation (low->high).
-    """
-
+def allocate_flood(dem_array, floodable_mask):
+    """Assign flood depths via percentile rule inside floodable mask."""
     mask_bool = floodable_mask.astype(bool)
-    valid_elev = dem_array[mask_bool]
+    elev = dem_array[mask_bool]
 
-    if valid_elev.size == 0:
+    if elev.size == 0:
         return np.zeros_like(dem_array, dtype=np.float32)
 
-    order = np.argsort(valid_elev)
-    n = order.size
+    idx_sorted = np.argsort(elev)
+    n = len(idx_sorted)
 
-    counts = [int(n * p) for p in percentages]
-    remainder = n - sum(counts)
-    if remainder > 0:
-        counts[-1] += remainder
+    counts = [int(n * p) for p in FLOOD_PERCENT]
+    counts[-1] += n - sum(counts)
 
-    combined = np.zeros_like(dem_array, dtype=np.float32)
+    out = np.zeros_like(dem_array, dtype=np.float32)
+    out_mask = out[mask_bool]
 
     start = 0
-    for count, lvl in zip(counts, levels):
-        end = start + count
-        sel = order[start:end]
-        arr_part = combined[mask_bool].copy()
-        arr_part[sel] = float(lvl)
-        combined[mask_bool] = arr_part
+    for cnt, lvl in zip(counts, FLOOD_LEVELS):
+        end = start + cnt
+        sel = idx_sorted[start:end]
+        out_mask[sel] = lvl
         start = end
 
-    return combined
+    out[mask_bool] = out_mask
+    return out.astype(np.float32)
 
 
-def _compatible_nodata(np_dtype):
-    if np.issubdtype(np_dtype, np.floating):
-        return 0.0
-    return None
-
-
-def save_raster(path, array, ref_ds, transform):
+def save_raster(path, array, ref, transform):
     """Write GeoTIFF safely."""
-    profile = ref_ds.meta.copy()
+    profile = ref.meta.copy()
     profile.update({
         "driver": "GTiff",
         "height": array.shape[0],
         "width": array.shape[1],
         "count": 1,
         "transform": transform,
-        "crs": ref_ds.crs,
         "dtype": array.dtype.name,
-        "compress": "lzw"
+        "compress": "lzw",
+        "crs": ref.crs,
+        "nodata": 0.0
     })
-    profile.pop("nodata", None)
 
-    nodata = _compatible_nodata(array.dtype)
-    if nodata is not None:
-        profile["nodata"] = nodata
-
-    with rasterio.open(path, "w", **profile) as ds:
-        ds.write(array, 1)
+    with rasterio.open(path, "w", **profile) as dst:
+        dst.write(array, 1)
 
 
 def raster_to_polygon(raster_array, transform, crs):
-    """Convert raster>0 to polygons."""
     mask = raster_array > 0
     shapes_gen = shapes(raster_array, mask=mask, transform=transform)
-    polys, levels = [], []
+
+    polys = []
+    vals = []
 
     for geom, val in shapes_gen:
-        if val <= 0:
-            continue
-        polys.append(shape(geom))
-        levels.append(float(val))
+        if val > 0:
+            polys.append(shape(geom))
+            vals.append(float(val))
 
     if not polys:
-        return gpd.GeoDataFrame(columns=["flood_level", "geometry"], geometry="geometry", crs=crs)
+        return gpd.GeoDataFrame(columns=["flood_level", "geometry"], crs=crs)
 
-    return gpd.GeoDataFrame({"flood_level": levels, "geometry": polys}, crs=crs)
+    return gpd.GeoDataFrame({"flood_level": vals, "geometry": polys}, crs=crs)
 
 
 def optimize_polygon(gdf):
-    """Simplify + dissolve."""
     if gdf.empty:
         return gdf
 
-    dissolved = gdf.dissolve(by="flood_level").reset_index()
+    dissolved = gdf.dissolve(by="flood_level")
     cleaned = []
 
-    for _, row in dissolved.iterrows():
+    for lvl, row in dissolved.iterrows():
         geom = row.geometry
         if not geom.is_valid:
             geom = geom.buffer(0)
         geom = geom.simplify(1.5, preserve_topology=True)
-        cleaned.append({"flood_level": row.flood_level, "geometry": geom})
+        cleaned.append({"flood_level": float(lvl), "geometry": geom})
 
-    return gpd.GeoDataFrame(cleaned, geometry="geometry", crs=gdf.crs)
+    return gpd.GeoDataFrame(cleaned, crs=gdf.crs)
+
+
+# ============================================================
+# CLEAN OUTPUT
+# ============================================================
+
+def clean_outputs(boundary_gdf, transform, ref_ds):
+    """
+    Clean flood_depth_combined_B.* outputs:
+    - Raster outside boundary = 0
+    - Polygon clipped strictly to boundary
+    """
+
+    # --- Paths ---
+    raster_path = OUTPUT_DIR / "flood_depth_combined_B.tif"
+    raster_clean = OUTPUT_DIR / "flood_depth_combined_B_clean.tif"
+
+    polygon_path = OUTPUT_DIR / "flood_area_combined_B.geojson"
+    polygon_clean = OUTPUT_DIR / "flood_area_combined_B_clean.geojson"
+
+    # ---------------------------
+    # CLEAN RASTER
+    # ---------------------------
+    with rasterio.open(raster_path) as src:
+        arr = src.read(1)
+        meta = src.meta.copy()
+
+    # Rasterize boundary mask
+    boundary_union = boundary_gdf.unary_union
+    boundary_mask = rfeatures.rasterize(
+        [(boundary_union, 1)],
+        out_shape=arr.shape,
+        transform=transform,
+        dtype=np.uint8,
+        fill=0
+    )
+
+    arr_clean = np.where(boundary_mask == 1, arr, 0).astype(np.float32)
+
+    with rasterio.open(raster_clean, "w", **meta) as dst:
+        dst.write(arr_clean, 1)
+
+    print("[CLEAN] Saved:", raster_clean)
+
+    # ---------------------------
+    # CLEAN POLYGON
+    # ---------------------------
+    if polygon_path.exists():
+        poly = gpd.read_file(polygon_path)
+        boundary = boundary_gdf
+
+        try:
+            poly_clean = gpd.overlay(poly, boundary, how="intersection")
+        except Exception:
+            poly_clean = poly[poly.geometry.intersects(boundary.unary_union)]
+
+        poly_clean.to_file(polygon_clean, driver="GeoJSON")
+        print("[CLEAN] Saved:", polygon_clean)
+
+    else:
+        print("[WARNING] polygon missing, skip clean.")
 
 
 # ============================================================
@@ -229,51 +245,48 @@ def optimize_polygon(gdf):
 def main():
     ensure_dir(OUTPUT_DIR)
 
-    print("Hydrologic flood-fill simulation started...")
+    print("\n=== Hydrologic Flood Simulation B START ===")
 
     water_gdf = gpd.read_file(WATER_PATH)
     boundary_gdf = gpd.read_file(BOUNDARY_PATH)
 
     with rasterio.open(DEM_PATH) as dem_src:
+
         dem_array, dem_transform = load_dem_clipped(dem_src, boundary_gdf)
         dem_array = dem_array.astype(float)
 
-        # STEP 1 — Rasterize water bodies
+        # 1) Rasterize water
         water_mask = rasterize_water(dem_array.shape, dem_transform, water_gdf)
 
-        # STEP 2 — Hydrologic flood fill
+        # 2) Hydrologic flood propagation
         floodable_mask = hydrologic_flood_fill(dem_array, water_mask)
 
-        # STEP 3 — Allocate flood levels only inside floodable
-        combined_depth = allocate_flood_by_percentile(
-            dem_array,
-            floodable_mask,
-            FLOOD_PERCENT,
-            FLOOD_LEVELS
-        )
+        # 3) Allocate flood depths
+        combined = allocate_flood(dem_array, floodable_mask)
 
-        # Outside floodable = 0.0
-        combined_depth = np.where(floodable_mask == 1, combined_depth, 0.0).astype(np.float32)
+        # 4) Outside floodable = 0
+        combined = np.where(floodable_mask == 1, combined, 0).astype(np.float32)
 
-        # STEP 4 — Save per-level rasters
+        # 5) Save per-level + combined rasters
         for lvl in FLOOD_LEVELS:
-            mask_lvl = (combined_depth == lvl).astype(np.uint8)
-            depth_lvl = np.where(mask_lvl == 1, lvl, 0.0).astype(np.float32)
+            mask_lvl = (combined == lvl).astype(np.uint8)
+            depth_lvl = np.where(mask_lvl == 1, lvl, 0).astype(np.float32)
 
-            save_raster(str(OUTPUT_DIR / f"flood_mask_{lvl}m_B.tif"), mask_lvl, dem_src, dem_transform)
-            save_raster(str(OUTPUT_DIR / f"flood_depth_{lvl}m_B.tif"), depth_lvl, dem_src, dem_transform)
+            save_raster(OUTPUT_DIR / f"flood_mask_{lvl}m_B.tif", mask_lvl, dem_src, dem_transform)
+            save_raster(OUTPUT_DIR / f"flood_depth_{lvl}m_B.tif", depth_lvl, dem_src, dem_transform)
 
-        # STEP 5 — Save combined
-        save_raster(str(OUTPUT_DIR / "flood_depth_combined_B.tif"), combined_depth, dem_src, dem_transform)
+        combined_path = OUTPUT_DIR / "flood_depth_combined_B.tif"
+        save_raster(combined_path, combined, dem_src, dem_transform)
 
-        # STEP 6 — Convert to polygons
-        crs = dem_src.crs.to_string()
-        poly_gdf = raster_to_polygon(combined_depth, dem_transform, crs)
-        poly_gdf = optimize_polygon(poly_gdf)
-        poly_gdf.to_file(str(OUTPUT_DIR / "flood_area_combined_B.geojson"), driver="GeoJSON")
+        # 6) Convert combined raster → polygons
+        poly = raster_to_polygon(combined, dem_transform, dem_src.crs.to_string())
+        poly = optimize_polygon(poly)
+        poly.to_file(OUTPUT_DIR / "flood_area_combined_B.geojson", driver="GeoJSON")
 
-        print("\nHydrologic flood-fill simulation completed.")
-        print("Outputs saved to:", OUTPUT_DIR)
+        # 7) CLEAN OUTPUT FILES
+        clean_outputs(boundary_gdf, dem_transform, dem_src)
+
+    print("\n=== Hydrologic Flood Simulation B COMPLETE ===\n")
 
 
 if __name__ == "__main__":
