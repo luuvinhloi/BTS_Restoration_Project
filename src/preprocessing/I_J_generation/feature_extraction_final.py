@@ -1,14 +1,14 @@
 
 # feature_extraction_final.py
 """
-Feature extraction (I_points, J_sites) — improved version with flood filtering
+Feature extraction (I_points, J_sites) — updated with handling for power_outage BTS
 
-Key changes vs original:
- - Adds flood raster check: removes J candidates where flood_depth > 1.0 m.
- - Strengthens water checks (vector water mask + flood raster).
- - Keeps original outputs (I_points.csv, J_sites.csv, cover.npy) and original signatures.
- - Cleaner structure, defensive IO, deterministic seeding.
- - Uses rasterio for raster lookups; treats nodata as 0 (no flood) by default.
+Behavior changes:
+ - Pop cells covered by active BTS and by BTS with status='power_outage' are removed before clustering I (Method A).
+ - Only 'failed' BTS (status='failed') are considered as genuinely failed and drive recovery I/J generation.
+ - Flood filtering remains: J candidates with flood_depth > flood_depth_threshold_m are removed.
+ - Configuration for flood path and thresholds remains loadable from params.yaml via feature_extraction.flood_tif
+ - Output file formats unchanged.
 """
 from pathlib import Path
 import math
@@ -97,28 +97,62 @@ def extract_population_cells(pop_tif: str, threshold: float = 3.0) -> gpd.GeoDat
     except Exception:
         return gpd.GeoDataFrame(columns=["longitude","latitude","pop","geometry"], crs="EPSG:4326")
 
-def remove_covered_by_active_bts(pop_gdf: gpd.GeoDataFrame, active_bts_df: pd.DataFrame) -> gpd.GeoDataFrame:
-    """Remove population points that lie within union of active BTS buffers (EPSG:3857)."""
-    if pop_gdf is None or pop_gdf.empty or active_bts_df is None or active_bts_df.empty:
+def remove_covered_by_operational_bts(pop_gdf: gpd.GeoDataFrame,
+                                      active_bts_df: pd.DataFrame,
+                                      failed_bts_df: pd.DataFrame,
+                                      default_radius_m: float = 3000.0) -> gpd.GeoDataFrame:
+    """
+    Remove population points that lie within union of active BTS buffers AND
+    BTS with status='power_outage' (treated as operational for coverage purposes).
+
+    This implements Method A: treat power_outage BTS as still providing coverage,
+    therefore no need to create I/J for areas they cover.
+    """
+    if pop_gdf is None or pop_gdf.empty:
         return pop_gdf
+
+    # build list of operational BTS: active + power_outage from failed_bts_df
+    frames = []
+    if active_bts_df is not None and not active_bts_df.empty:
+        frames.append(active_bts_df.copy())
+    if failed_bts_df is not None and not failed_bts_df.empty:
+        try:
+            power_df = failed_bts_df[failed_bts_df.get("status", "").astype(str).str.lower() == "power_outage"].copy()
+            if not power_df.empty:
+                frames.append(power_df)
+        except Exception:
+            pass
+    if not frames:
+        return pop_gdf
+
+    merged = pd.concat(frames, ignore_index=True, sort=False)
+    # ensure geometry
     try:
-        pop_proj = pop_gdf.to_crs(epsg=3857)
-    except Exception:
-        pop_proj = pop_gdf.copy()
-    try:
-        bts_gdf = gpd.GeoDataFrame(active_bts_df.copy(),
-                                   geometry=gpd.points_from_xy(active_bts_df.longitude, active_bts_df.latitude),
+        bts_gdf = gpd.GeoDataFrame(merged.copy(),
+                                   geometry=gpd.points_from_xy(merged.longitude, merged.latitude),
                                    crs="EPSG:4326").to_crs(epsg=3857)
     except Exception:
-        bts_gdf = gpd.GeoDataFrame(active_bts_df.copy())
+        bts_gdf = gpd.GeoDataFrame(merged.copy())
         bts_gdf["geometry"] = [Point(0,0)]*len(bts_gdf)
         bts_gdf = bts_gdf.set_crs(epsg=3857, allow_override=True)
+
+    # coverage radius handling: prefer column 'coverage_radius_m' if present, else default_radius_m
     if "coverage_radius_m" not in bts_gdf.columns:
-        bts_gdf["coverage_radius_m"] = 3000.0
+        bts_gdf["coverage_radius_m"] = default_radius_m
+    else:
+        # fill missing or invalid values
+        bts_gdf["coverage_radius_m"] = bts_gdf["coverage_radius_m"].fillna(default_radius_m).astype(float)
+
     buffers = [g.buffer(float(r)) for g,r in zip(bts_gdf.geometry, bts_gdf.coverage_radius_m)]
     if not buffers:
         return pop_gdf
     union_buf = unary_union(buffers)
+
+    try:
+        pop_proj = pop_gdf.to_crs(epsg=3857)
+    except Exception:
+        pop_proj = pop_gdf.copy()
+
     mask = pop_proj.geometry.within(union_buf)
     return pop_gdf.loc[~mask.values].reset_index(drop=True)
 
@@ -794,6 +828,19 @@ def main(config: dict, out_dir: str or Path):
 
     active_bts, failed_bts = _read_bts_files(DAMAGE_BTS_DIR)
 
+    # split failed_bts into power_outage (treated operational) and hard failed
+    failed_power = pd.DataFrame()
+    failed_hard = pd.DataFrame()
+    if failed_bts is not None and not failed_bts.empty:
+        try:
+            status_s = failed_bts.get("status", "")
+            # normalize to string lower
+            failed_power = failed_bts[status_s.astype(str).str.lower() == "power_outage"].copy()
+            failed_hard = failed_bts[status_s.astype(str).str.lower() == "failed"].copy()
+        except Exception:
+            # fallback: treat whole as hard failed if no status column
+            failed_hard = failed_bts.copy()
+
     np.random.seed(seed); random.seed(seed)
 
     print("1) Extract population cells from raster...")
@@ -806,9 +853,9 @@ def main(config: dict, out_dir: str or Path):
         except Exception:
             pass
 
-    print("2) Remove points covered by active BTS...")
-    pop_uncovered = remove_covered_by_active_bts(pop_gdf, active_bts)
-    print(f"   population cells before: {len(pop_gdf)}, after removing active BTS coverage: {len(pop_uncovered)}")
+    print("2) Remove points covered by active BTS and power_outage BTS (treated as operational)...")
+    pop_uncovered = remove_covered_by_operational_bts(pop_gdf, active_bts, failed_bts, default_radius_m=radius_I_m)
+    print(f"   population cells before: {len(pop_gdf)}, after removing operational BTS coverage: {len(pop_uncovered)}")
 
     if len(pop_uncovered) > pop_sample_max:
         print(f"   Downsampling pop cells from {len(pop_uncovered)} to {pop_sample_max} for speed...")
