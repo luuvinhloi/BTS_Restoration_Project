@@ -1,90 +1,149 @@
 """
-Sinh vùng mất sóng (Generate Damage Scenario) Tạo các trạm BTS bị hư hỏng do thiên tai
+BTS DAMAGE SCENARIO GENERATOR
+Sinh dữ liệu BTS bị ảnh hưởng bởi thiên tai (bão, lũ, ngập lụt).
 
-Mục đích:
-Mô phỏng thiệt hại do thiên tai bằng cách chọn ngẫu nhiên 85% các trạm BTS.
-Các trạm còn lại vẫn hoạt động bình thường.
+YÊU CẦU:
+- 20% trạm ACTIVE và bắt buộc nằm ngoài vùng ngập.
+- 15% trạm POWER_OUTAGE (mất nguồn), phân bố ngẫu nhiên toàn khu vực.
+- 65% trạm FAILED (hư hỏng nặng), phân bố ngẫu nhiên toàn khu vực.
 
-Kết quả đầu ra:
-    - active_bts.geojson : các trạm BTS còn hoạt động
-    - failed_bts.geojson : các trạm BTS bị hư hỏng
-    - active_bts.csv     : dữ liệu thuộc tính của các trạm còn hoạt động
-    - failed_bts.csv     : dữ liệu thuộc tính của các trạm bị hư hỏng
+DỮ LIỆU ĐẦU VÀO:
+- BTS CSV: BTS_Restoration_Project/data/processed/bts_network/bts_ga.csv
+- Flood Raster (TIF): BTS_Restoration_Project/data/processed/flood/flood_depth_combined_B_clean.tif
+
+DỮ LIỆU ĐẦU RA:
+- active_bts.geojson / csv
+- failed_bts.geojson / csv
 """
-
 import geopandas as gpd
+import pandas as pd
 import numpy as np
-import random
+import rasterio
 from pathlib import Path
-from src.utils.io_utils import read_csv, read_geojson, write_geojson
-import os
 
-# Đường dẫn dữ liệu gốc
-DATA_DIR = Path(__file__).resolve().parents[2] / "data"
+# Utility: Load BTS DataFrame → GeoDataFrame
+def load_bts_dataframe(csv_path: str) -> gpd.GeoDataFrame:
+    df = pd.read_csv(csv_path)
 
-# Hàm chọn ngẫu nhiên các trạm bị hư hỏng
-def sample_failed_bts(bts_csv_path, damage_rate=0.65, seed=0):
-    # Đọc dữ liệu BTS
-    df = read_csv(bts_csv_path)
-
-    # Kiểm tra tên cột chứa toạ độ
-    lon_col = next((c for c in df.columns if c.lower() in ['lon','longitude','lng','x']), None)
-    lat_col = next((c for c in df.columns if c.lower() in ['lat','latitude','y']), None)
+    lon_col = next((c for c in df.columns if c.lower() in ["lon", "lng", "longitude", "x"]), None)
+    lat_col = next((c for c in df.columns if c.lower() in ["lat", "latitude", "y"]), None)
 
     if lon_col is None or lat_col is None:
-        raise ValueError("bts_ga.csv must contain lat/lon columns")
+        raise ValueError("CSV must contain longitude/latitude columns!")
 
-    # Chuyển thành GeoDataFrame để có thể ghi ra GeoJSON
-    gdf = gpd.GeoDataFrame(
+    return gpd.GeoDataFrame(
         df,
         geometry=gpd.points_from_xy(df[lon_col], df[lat_col]),
         crs="EPSG:4326"
     )
 
-    # Sinh ngẫu nhiên danh sách trạm bị hư hỏng
+# Utility: Extract flood depth values for each BTS
+def extract_flood_depth(points_gdf: gpd.GeoDataFrame, raster_path: str) -> np.ndarray:
+    with rasterio.open(raster_path) as src:
+        depths = []
+        for geom in points_gdf.geometry:
+            x, y = geom.x, geom.y
+            try:
+                row, col = src.index(x, y)
+                value = src.read(1)[row, col]
+            except Exception:
+                value = np.nan
+            depths.append(value)
+        return np.array(depths)
+
+# MAIN FUNCTION
+def generate_bts_damage_dataset(
+        bts_csv_path: str,
+        flood_tif_path: str,
+        output_dir: str,
+        active_rate=0.20,
+        power_outage_rate=0.15,
+        failed_rate=0.65,
+        seed=42
+):
     np.random.seed(seed)
-    N = len(gdf)
-    k = int(np.round(damage_rate * N))
-    failed_idx = np.random.choice(gdf.index, size=k, replace=False)
 
-    # Tách dữ liệu thành 2 nhóm: active và failed
-    failed_gdf = gdf.loc[failed_idx].copy()
-    active_gdf = gdf.drop(index=failed_idx).copy()
+    # Load BTS
+    bts = load_bts_dataframe(bts_csv_path)
+    total = len(bts)
+    print(f"Loaded {total} BTS stations.")
 
-    failed_gdf["status"] = "failed"
-    active_gdf["status"] = "active"
+    # Extract flood depth
+    print("Extracting flood depth...")
+    flood_depth = extract_flood_depth(bts, flood_tif_path)
+    bts["flooded"] = (flood_depth > 0).astype(int)
 
-    return active_gdf, failed_gdf
+    # Filter non-flooded for ACTIVE
+    non_flooded = bts[bts["flooded"] == 0]
 
-# Hàm chính xử lý & ghi file
-def main(bts_csv, out_dir, damage_rate=0.85, seed=42):
-    active_gdf, failed_gdf = sample_failed_bts(bts_csv, damage_rate, seed)
+    required_active = int(total * active_rate)
+    required_power = int(total * power_outage_rate)
+    required_failed = total - required_active - required_power
 
-    out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
+    if len(non_flooded) < required_active:
+        raise ValueError(f"Không đủ trạm không ngập để phân bố ACTIVE ({len(non_flooded)}/{required_active})")
 
-    # Ghi file GeoJSON
-    active_gdf.to_file(out_dir / "active_bts.geojson", driver="GeoJSON")
-    failed_gdf.to_file(out_dir / "failed_bts.geojson", driver="GeoJSON")
+    # Select ACTIVE
+    active_idx = np.random.choice(non_flooded.index, required_active, replace=False)
+    active_bts = bts.loc[active_idx].copy()
+    active_bts["status"] = "active"
 
-    # Ghi file CSV
-    active_gdf.drop(columns=["geometry"]).to_csv(out_dir / "active_bts.csv", index=False)
-    failed_gdf.drop(columns=["geometry"]).to_csv(out_dir / "failed_bts.csv", index=False)
+    # Remaining are damaged
+    remaining = bts.drop(index=active_idx)
 
-    # Thông tin log kết quả
-    print("CREATED A SIMULATOR OF BTS STATION DAMAGE:")
-    print(f"    Total number of stations: {len(active_gdf) + len(failed_gdf)}")
-    print(f"    The station is still active: {len(active_gdf)} ({(1 - damage_rate) * 100:.1f}%)")
-    print(f"    The station is damaged: {len(failed_gdf)} ({damage_rate * 100:.1f}%)")
+    # POWER OUTAGE
+    power_idx = np.random.choice(remaining.index, required_power, replace=False)
+    power_bts = remaining.loc[power_idx].copy()
+    power_bts["status"] = "power_outage"
 
+    # FAILED
+    remaining = remaining.drop(index=power_idx)
+    failed_bts = remaining.copy()
+    failed_bts["status"] = "failed"
+
+    # Merge damaged BTS into one dataset
+    failed_all = pd.concat([power_bts, failed_bts], axis=0)
+    failed_all = failed_all.sort_index()
+
+    # Output directory
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    # Export ACTIVE
+    active_bts.to_file(output_path / "active_bts.geojson", driver="GeoJSON")
+    active_bts.drop(columns=["geometry"]).to_csv(output_path / "active_bts.csv", index=False)
+
+    # Export FAILED (power_outage + failed)
+    failed_all.to_file(output_path / "failed_bts.geojson", driver="GeoJSON")
+    failed_all.drop(columns=["geometry"]).to_csv(output_path / "failed_bts.csv", index=False)
+
+    print("\n===== DAMAGE SCENARIO GENERATED SUCCESSFULLY =====")
+    print(f"Total BTS: {total}")
+    print(f"Active (20%): {len(active_bts)}")
+    print(f"Power Outage (15%): {len(power_bts)}")
+    print(f"Failed (65%): {len(failed_bts)}")
+    print(f"FAILED TOTAL: {len(failed_all)}")
+    print(f"Output saved to: {output_path.resolve()}")
+    print("==================================================")
+
+    return active_bts, failed_all
+
+# CLI ENTRY POINT
 if __name__ == "__main__":
     import argparse
 
-    p = argparse.ArgumentParser()
-    p.add_argument("--bts_csv", default=str(DATA_DIR / "processed" / "bts_network" / "bts_ga.csv"))
-    p.add_argument("--out_dir", default=str(DATA_DIR / "processed" / "damage_bts"))
-    p.add_argument("--damage_rate", type=float, default=0.85)
-    p.add_argument("--seed", type=int, default=42)
-    args = p.parse_args()
+    parser = argparse.ArgumentParser(description="Generate BTS damage dataset")
+    parser.add_argument("--bts_csv", required=False,
+                        default="BTS_Restoration_Project/data/processed/bts_network/bts_ga.csv")
+    parser.add_argument("--flood_tif", required=False,
+                        default="BTS_Restoration_Project/data/processed/flood/flood_depth_combined_B_clean.tif")
+    parser.add_argument("--out_dir", required=False,
+                        default="BTS_Restoration_Project/data/processed/bts_damage")
 
-    main(args.bts_csv, args.out_dir, args.damage_rate, args.seed)
+    args = parser.parse_args()
+
+    generate_bts_damage_dataset(
+        bts_csv_path=args.bts_csv,
+        flood_tif_path=args.flood_tif,
+        output_dir=args.out_dir
+    )
