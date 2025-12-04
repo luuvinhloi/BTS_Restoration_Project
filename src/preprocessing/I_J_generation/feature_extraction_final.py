@@ -1,23 +1,15 @@
-# src/preprocessing/I_J_generation/feature_extraction_final.py
+
+# feature_extraction_final.py
 """
-Feature extraction - unified, optimized, clean implementation.
+Feature extraction (I_points, J_sites) — improved version with flood filtering
 
-Outputs:
-  - I_points.csv  (site_id, latitude, longitude, pop, priority_category, priority_weight)
-  - J_sites.csv   (site_id, i_ref, latitude, longitude, pop, priority_category,
-                   priority_weight, slope, dist_to_road_m, in_water)
-  - cover.npy     (I x J binary matrix for radius coverage)
-
-Design highlights:
-  - vectorized raster extraction
-  - pyproj Transformer reuse (fast coordinate transforms)
-  - cKDTree for fast radius queries (pop and road vertex distances)
-  - slope raster read once + index lookup
-  - downsample pop cells if too many (preserve heavy-pop cells)
-  - configurable defaults tuned to produce >=1000 I and >=800 J typically
-  - defensive checks and deterministic seeding
+Key changes vs original:
+ - Adds flood raster check: removes J candidates where flood_depth > 1.0 m.
+ - Strengthens water checks (vector water mask + flood raster).
+ - Keeps original outputs (I_points.csv, J_sites.csv, cover.npy) and original signatures.
+ - Cleaner structure, defensive IO, deterministic seeding.
+ - Uses rasterio for raster lookups; treats nodata as 0 (no flood) by default.
 """
-
 from pathlib import Path
 import math
 import random
@@ -32,8 +24,30 @@ from sklearn.cluster import DBSCAN
 from scipy.spatial import cKDTree
 from pyproj import Transformer
 
-from src.utils.geo_utils import compute_distance_matrix
-from src.utils.io_utils import read_geojson
+# local utils (assume same package layout)
+try:
+    from src.utils.geo_utils import compute_distance_matrix
+    from src.utils.io_utils import read_geojson
+except Exception:
+    # fallback simple placeholders if utils not available (to avoid import errors during linting)
+    def compute_distance_matrix(A, B, metric='haversine'):
+        # A and B are list of {'y':lat,'x':lon} dicts. We'll compute haversine distances (meters).
+        def hav(lat1, lon1, lat2, lon2):
+            R = 6371000.0
+            phi1 = math.radians(lat1); phi2 = math.radians(lat2)
+            dphi = math.radians(lat2 - lat1); dl = math.radians(lon2 - lon1)
+            a = math.sin(dphi/2.0)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dl/2.0)**2
+            return 2*R*math.asin(math.sqrt(max(0.0,min(1.0,a))))
+        M = np.zeros((len(A), len(B)), dtype=float)
+        for i,a in enumerate(A):
+            for j,b in enumerate(B):
+                M[i,j] = hav(a['y'], a['x'], b['y'], b['x'])
+        return M
+    def read_geojson(path):
+        try:
+            return gpd.read_file(path)
+        except Exception:
+            return gpd.GeoDataFrame()
 
 # ---------------------- PATHS ----------------------
 _file = Path(__file__).resolve()
@@ -45,6 +59,9 @@ if not DATA_DIR.exists():
         DATA_DIR = alt
 CLEANED_DIR = DATA_DIR / "cleaned"
 DAMAGE_BTS_DIR = DATA_DIR / "processed" / "damage_bts"
+
+# default flood tif path (user provided location)
+FLOOD_TIF_DEFAULT = _project_root / "BTS_Restoration_Project" / "data" / "processed" / "flood" / "flood_depth_combined_B_clean.tif"
 
 # ---------------------- Helpers ----------------------
 def _read_bts_files(damage_bts_dir: Path = DAMAGE_BTS_DIR):
@@ -67,10 +84,15 @@ def extract_population_cells(pop_tif: str, threshold: float = 3.0) -> gpd.GeoDat
             xs, ys, vs = [], [], []
             for r, c in zip(rows, cols):
                 v = float(arr[r, c])
-                x, y = transform * (int(c) + 0.5, int(r) + 0.5)
+                x, y = transform * (float(c) + 0.5, float(r) + 0.5)
                 xs.append(x); ys.append(y); vs.append(v)
             gdf = gpd.GeoDataFrame({"longitude": xs, "latitude": ys, "pop": vs},
-                                   geometry=[Point(x,y) for x,y in zip(xs,ys)], crs="EPSG:4326")
+                                   geometry=[Point(x,y) for x,y in zip(xs,ys)], crs=src.crs.to_string())
+            # ensure WGS84 output
+            try:
+                gdf = gdf.to_crs(epsg=4326)
+            except Exception:
+                gdf.set_crs(epsg=4326, inplace=True, allow_override=True)
             return gdf
     except Exception:
         return gpd.GeoDataFrame(columns=["longitude","latitude","pop","geometry"], crs="EPSG:4326")
@@ -190,12 +212,12 @@ def assign_priority_to_I(I_df: pd.DataFrame, infra_paths: dict, buffer_m: float 
                 d = np.inf
             if np.isfinite(d) and d < buffer_m:
                 add = {
-                    'schools': 2.0,
-                    'hospitals': 3.0,
-                    'medical_centers': 2.5,
-                    'industrial': 1.5,
-                    'residential': 1.2,
-                    'command_centers': 3.0
+                    'schools_clean': 2.0,
+                    'hospitals_clean': 3.0,
+                    'medical_centers_clean': 2.5,
+                    'industrial_clean': 1.5,
+                    'residential_clean': 1.2,
+                    'command_centers_clean': 3.0
                 }.get(name, 1.0)
                 I_gdf.at[idx, "priority_weight"] = float(I_gdf.at[idx, "priority_weight"]) + add
                 I_gdf.at[idx, "priority_category"] = name
@@ -256,12 +278,13 @@ def grid_sample_within_bounds(boundary_gdf: gpd.GeoDataFrame, spacing_m: float, 
     except Exception:
         return []
 
-# ---------------------- J candidate generation (upgraded) ----------------------
+# ---------------------- J candidate generation (with flood checks) ----------------------
 def generate_J_candidates(
         I_df: pd.DataFrame,
         roads_gdf: gpd.GeoDataFrame,
         water_gdf: gpd.GeoDataFrame,
         slope_tif: str,
+        flood_tif: str = None,
         candidate_per_cluster: int = 15,
         jitter_m: float = 300,
         slope_threshold: float = 30.0,
@@ -271,15 +294,13 @@ def generate_J_candidates(
         dedup_round: int = 5,
         road_samples_per_line: int = 3,
         extra_jitter_scales: list = (100, 300, 800),
-        boundary_gdf: gpd.GeoDataFrame = None
+        boundary_gdf: gpd.GeoDataFrame = None,
+        flood_depth_threshold_m: float = 1.0
 ):
     """
-    Produce a large candidate pool J_pool with multiple strategies:
-      - road-interpolated samples near each I
-      - multi-scale jitter around each I
-      - global grid sampling (spatial coverage)
-      - sparse sampling along random road segments
-    Returns DataFrame of candidate J (latitude, longitude, slope, dist_to_road_m, in_water)
+    Produce a candidate pool J_pool with flood filtering:
+      - discard any candidate where flood_depth > flood_depth_threshold_m
+      - discard candidates in water_gdf (river/lake polygon)
     """
     random.seed(seed); np.random.seed(seed)
     J_pool = []
@@ -323,6 +344,23 @@ def generate_J_candidates(
     except Exception:
         slope_src = None; slope_arr = None; transformer_to_slope = None
 
+    # flood raster (optional)
+    flood_src = None; flood_arr = None; transformer_to_flood = None
+    if flood_tif is None:
+        # attempt default
+        ft = FLOOD_TIF_DEFAULT if 'FLOOD_TIF_DEFAULT' in globals() else None
+    else:
+        ft = flood_tif
+    try:
+        if ft is not None and Path(ft).exists():
+            flood_src = rasterio.open(str(ft))
+            flood_arr = flood_src.read(1)
+            transformer_to_flood = Transformer.from_crs("EPSG:4326", flood_src.crs.to_string(), always_xy=True)
+        else:
+            flood_src = None; flood_arr = None; transformer_to_flood = None
+    except Exception:
+        flood_src = None; flood_arr = None; transformer_to_flood = None
+
     def lonlat_to_3857(lon, lat):
         try:
             return trans_wgs_to_3857.transform(lon, lat)
@@ -339,7 +377,7 @@ def generate_J_candidates(
         except Exception:
             return float("inf")
 
-    def point_in_water(lon, lat):
+    def point_in_water_vector(lon, lat):
         if water_union is None:
             return False
         try:
@@ -347,6 +385,22 @@ def generate_J_candidates(
             return bool(water_union.contains(Point(x, y)))
         except Exception:
             return False
+
+    def flood_depth_at(lon, lat):
+        """Return flood depth in the flood raster at lon/lat in meters. If nodata or outside, return 0.0"""
+        if flood_arr is None or flood_src is None or transformer_to_flood is None:
+            return 0.0
+        try:
+            fx, fy = transformer_to_flood.transform(lon, lat)
+            row, col = flood_src.index(fx, fy)
+            if 0 <= row < flood_arr.shape[0] and 0 <= col < flood_arr.shape[1]:
+                val = flood_arr[row, col]
+                if np.isnan(val):
+                    return 0.0
+                return float(val)
+            return 0.0
+        except Exception:
+            return 0.0
 
     def slope_at(lon, lat):
         if slope_arr is None or slope_src is None or transformer_to_slope is None:
@@ -371,7 +425,7 @@ def generate_J_candidates(
                 base_lat = float(row.get("latitude", row.get("lat", np.nan)))
             except Exception:
                 continue
-            # sample road points inside small buffer around I
+            # if I itself is flooded heavily, still allow J nearby if J not flooded? (we will check per candidate)
             found = 0
             try:
                 x_b, y_b = lonlat_to_3857(base_lon, base_lat)
@@ -399,16 +453,22 @@ def generate_J_candidates(
                             if s is None:
                                 continue
                             lon_c, lat_c = s
+                            # flood check
+                            depth = flood_depth_at(lon_c, lat_c)
+                            if depth > flood_depth_threshold_m:
+                                continue
+                            # vector water check
+                            if point_in_water_vector(lon_c, lat_c):
+                                continue
                             s_val = slope_at(lon_c, lat_c)
                             if s_val > slope_threshold:
                                 continue
                             droad = dist_to_roads_m(lon_c, lat_c)
                             if droad > road_buffer_m:
                                 continue
-                            if point_in_water(lon_c, lat_c):
-                                continue
                             J_pool.append({"latitude": float(lat_c), "longitude": float(lon_c),
-                                           "slope": float(s_val), "dist_to_road_m": float(droad), "in_water": False})
+                                           "slope": float(s_val), "dist_to_road_m": float(droad), "in_water": False,
+                                           "flood_depth_m": float(depth)})
                             found += 1
                             if found >= candidate_per_cluster:
                                 break
@@ -430,19 +490,22 @@ def generate_J_candidates(
                     except Exception:
                         lon_c = base_lon + (np.random.normal(scale=scale) / 111000.0)
                         lat_c = base_lat + (np.random.normal(scale=scale) / 111000.0)
+                    depth = flood_depth_at(lon_c, lat_c)
+                    if depth > flood_depth_threshold_m:
+                        continue
+                    if point_in_water_vector(lon_c, lat_c):
+                        continue
                     s_val = slope_at(lon_c, lat_c)
                     if s_val > slope_threshold:
                         continue
                     droad = dist_to_roads_m(lon_c, lat_c)
                     if droad > road_buffer_m:
                         continue
-                    if point_in_water(lon_c, lat_c):
-                        continue
                     J_pool.append({"latitude": float(lat_c), "longitude": float(lon_c),
-                                   "slope": float(s_val), "dist_to_road_m": float(droad), "in_water": False})
+                                   "slope": float(s_val), "dist_to_road_m": float(droad), "in_water": False,
+                                   "flood_depth_m": float(depth)})
 
     # ---------------- global grid sampling (spatial coverage) ----------------
-    # spacing chosen so that medium -> ~500 pts; spacing_m adjustable.
     if boundary_gdf is None:
         try:
             boundary_gdf = read_geojson(str(CLEANED_DIR / "hue_boundary_clean.geojson"))
@@ -451,30 +514,29 @@ def generate_J_candidates(
 
     if n_global_samples is None:
         n_global_samples = 500
-    # choose spacing_m by approximate area
     grid_pts = []
     try:
         if boundary_gdf is not None and not boundary_gdf.empty:
-            # estimate spacing such that produced points ~ n_global_samples
             b3857 = boundary_gdf.to_crs(epsg=3857)
             area = b3857.unary_union.area
-            # area per point ~ area / n_global_samples -> spacing ~ sqrt(area_per_point)
             if n_global_samples > 0:
                 spacing_m = max(250.0, math.sqrt(max(1.0, area / float(max(1, n_global_samples)))))
             else:
                 spacing_m = 1000.0
             grid_pts = grid_sample_within_bounds(boundary_gdf, spacing_m, max_points=n_global_samples)
             for lon_c, lat_c in grid_pts:
+                depth = flood_depth_at(lon_c, lat_c)
+                if depth > flood_depth_threshold_m:
+                    continue
+                if point_in_water_vector(lon_c, lat_c):
+                    continue
                 s_val = slope_at(lon_c, lat_c)
                 if s_val > slope_threshold:
                     continue
                 droad = dist_to_roads_m(lon_c, lat_c)
-                # keep even if droad > road_buffer_m (we want spatial diversity) but mark dist
-                in_w = point_in_water(lon_c, lat_c)
-                if in_w:
-                    continue
                 J_pool.append({"latitude": float(lat_c), "longitude": float(lon_c),
-                               "slope": float(s_val), "dist_to_road_m": float(droad), "in_water": False})
+                               "slope": float(s_val), "dist_to_road_m": float(droad), "in_water": False,
+                               "flood_depth_m": float(depth)})
     except Exception:
         pass
 
@@ -496,14 +558,18 @@ def generate_J_candidates(
                 if s is None:
                     continue
                 lon_c, lat_c = s
+                depth = flood_depth_at(lon_c, lat_c)
+                if depth > flood_depth_threshold_m:
+                    continue
+                if point_in_water_vector(lon_c, lat_c):
+                    continue
                 s_val = slope_at(lon_c, lat_c)
                 if s_val > slope_threshold:
                     continue
-                if point_in_water(lon_c, lat_c):
-                    continue
                 droad = dist_to_roads_m(lon_c, lat_c)
                 J_pool.append({"latitude": float(lat_c), "longitude": float(lon_c),
-                               "slope": float(s_val), "dist_to_road_m": float(droad), "in_water": False})
+                               "slope": float(s_val), "dist_to_road_m": float(droad), "in_water": False,
+                               "flood_depth_m": float(depth)})
                 cnt += 1
                 if cnt >= int(n_global_samples * 0.6):
                     break
@@ -513,6 +579,8 @@ def generate_J_candidates(
     # --------------- final pool postprocessing -----------------
     if slope_src is not None:
         slope_src.close()
+    if flood_src is not None:
+        flood_src.close()
 
     if not J_pool:
         return pd.DataFrame()
@@ -523,8 +591,10 @@ def generate_J_candidates(
     if dedup_round is None:
         J_df = J_df.drop_duplicates(subset=["latitude", "longitude"]).reset_index(drop=True)
     else:
-        J_df["lat_r"] = J_df["latitude"].round(int(dedup_round))
-        J_df["lon_r"] = J_df["longitude"].round(int(dedup_round))
+        # Use reasonable rounding: dedup_round is decimals -> guard between 4 and 7 decimals
+        decimals = max(4, min(7, int(dedup_round)))
+        J_df["lat_r"] = J_df["latitude"].round(decimals)
+        J_df["lon_r"] = J_df["longitude"].round(decimals)
         J_df = J_df.drop_duplicates(subset=["lat_r", "lon_r"]).drop(columns=["lat_r", "lon_r"]).reset_index(drop=True)
 
     return J_df
@@ -538,24 +608,11 @@ def evaluate_and_select_J(I_df: pd.DataFrame,
                           overlap_keep_threshold: float = 0.05,
                           min_uncov_pop_frac: float = 0.002,
                           strategy: str = "balanced"):
-    """
-    Evaluate J_pool (list of candidates) and select a final set of sites trying to meet target_J.
-    Strategy 'balanced' -> attempt roughly 50% pop-priority then 50% spatially diverse.
-    Process:
-      - compute pop covered by each candidate
-      - greedy select by uncovered pop until saturation (pop-priority)
-      - if selected < 50% target, relax thresholds or take more top pop
-      - then apply farthest-point sampling on remaining candidates to reach target (spatial)
-    """
     if J_pool is None or J_pool.empty:
         return pd.DataFrame()
-
-    # if no pop data: fallback to spatial sampling
     if pop_gdf is None or pop_gdf.empty:
-        # use farthest-point sampling on J_pool to choose target_J
         return farthest_point_sample(J_pool, target_J)
 
-    # prepare pop KDTree (3857)
     pop_proj = pop_gdf.to_crs(epsg=3857)
     pop_coords = np.vstack([pop_proj.geometry.x.values, pop_proj.geometry.y.values]).T
     pop_vals = pop_proj["pop"].values
@@ -564,22 +621,18 @@ def evaluate_and_select_J(I_df: pd.DataFrame,
 
     pop_kdt = cKDTree(pop_coords)
 
-    # convert J_pool to 3857 for spatial ops
     J_geo = gpd.GeoDataFrame(J_pool.copy(), geometry=gpd.points_from_xy(J_pool.longitude, J_pool.latitude), crs="EPSG:4326")
     J_proj = J_geo.to_crs(epsg=3857)
     J_coords_3857 = np.vstack([J_proj.geometry.x.values, J_proj.geometry.y.values]).T
 
-    # compute pop indices covered by each J (ball query)
     radius = float(radius_m)
     J_pop_idx = []
     for x, y in J_coords_3857:
         idxs = pop_kdt.query_ball_point([x, y], r=radius)
         J_pop_idx.append(idxs)
     total_pops = [float(pop_vals[idxs].sum()) if len(idxs) else 0.0 for idxs in J_pop_idx]
-    # initial sort by pop
     order = np.argsort(total_pops)[::-1]
 
-    # greedy selection by uncovered pop (pop-priority)
     selected_idxs = []
     covered_mask = np.zeros(len(pop_vals), dtype=bool)
     for idx in order:
@@ -596,43 +649,33 @@ def evaluate_and_select_J(I_df: pd.DataFrame,
         selected_idxs.append(idx)
         for i in uncovered:
             covered_mask[i] = True
-        if len(selected_idxs) >= int(target_J * 0.5):  # pick ~50% by pop first
+        if len(selected_idxs) >= int(target_J * 0.5):
             break
 
-    # if not enough pop-based picks, relax by taking more top pop
     if len(selected_idxs) < int(target_J * 0.5):
         needed = int(target_J * 0.5) - len(selected_idxs)
         extra = [i for i in order if i not in selected_idxs]
         selected_idxs.extend(extra[:needed])
 
-    # Build set of already selected J indices
     selected_set = set(selected_idxs)
 
-    # If we already reached target_J through pop-driven selection, trim/sort and return
     if len(selected_idxs) >= target_J:
         final_idxs = selected_idxs[:target_J]
         sel = J_pool.iloc[final_idxs].copy().reset_index(drop=True)
         return sel
 
-    # Spatial selection: farthest-point sampling (FPS) on remaining candidates to fill the rest
     remaining_needed = target_J - len(selected_idxs)
     if remaining_needed <= 0:
         sel = J_pool.iloc[selected_idxs].copy().reset_index(drop=True)
         return sel
 
-    # Prepare candidate coordinates for FPS (only indices not selected yet)
     candidate_indices = [i for i in range(len(J_pool)) if i not in selected_set]
     cand_coords = J_coords_3857[candidate_indices]
-
-    # Starting set points (seeded by selected ones)
     seed_coords = J_coords_3857[selected_idxs] if selected_idxs else np.empty((0,2))
-
-    # Perform FPS on candidate coords to pick `remaining_needed` points
     fps_selected_rel = farthest_point_sampling_indices(cand_coords, remaining_needed, seed_coords=seed_coords)
     fps_selected = [candidate_indices[i] for i in fps_selected_rel]
 
     final_idxs = selected_idxs + fps_selected
-    # If still short (rare), fill with top total_pops
     if len(final_idxs) < target_J:
         filler = [i for i in order if i not in final_idxs]
         final_idxs.extend(filler[:(target_J - len(final_idxs))])
@@ -643,38 +686,27 @@ def evaluate_and_select_J(I_df: pd.DataFrame,
 
 # ---------------------- Farthest-point sampling helpers ----------------------
 def farthest_point_sampling_indices(points, k, seed_coords=None):
-    """
-    points: numpy array (N x 2) coordinates in projected CRS (e.g. 3857)
-    seed_coords: optional array M x 2 - already selected points to initialize distances
-    returns indices (relative to points) of k selected by FPS
-    """
     N = points.shape[0]
     if N == 0 or k <= 0:
         return []
     if k >= N:
         return list(range(N))
-    # compute initial distances from seed_coords if provided
     if seed_coords is None or seed_coords.size == 0:
-        # pick a random seed index
         idx0 = np.random.randint(0, N)
         selected = [idx0]
         dists = np.linalg.norm(points - points[idx0:idx0+1], axis=1)
     else:
-        # distance from nearest seed point
         dists = np.min(np.linalg.norm(points[:, None, :] - seed_coords[None, :, :], axis=2), axis=1)
         selected = []
     while len(selected) < k:
         idx = int(np.argmax(dists))
         selected.append(idx)
-        # update distances
         newd = np.linalg.norm(points - points[idx:idx+1], axis=1)
         dists = np.minimum(dists, newd)
-        # avoid re-selecting same index
         dists[idx] = -1.0
     return selected
 
 def farthest_point_sample(J_pool: pd.DataFrame, target: int):
-    """Fallback spatial-only selection using FPS in 3857 coords."""
     if J_pool is None or J_pool.empty:
         return pd.DataFrame()
     J_geo = gpd.GeoDataFrame(J_pool.copy(), geometry=gpd.points_from_xy(J_pool.longitude, J_pool.latitude), crs="EPSG:4326")
@@ -684,7 +716,7 @@ def farthest_point_sample(J_pool: pd.DataFrame, target: int):
     sel = J_pool.iloc[sel_rel].copy().reset_index(drop=True)
     return sel
 
-# ---------------------- Main selection wrapper (keeps signature) ----------------------
+# ---------------------- Main selection wrapper ----------------------
 def evaluate_candidates_and_reduce_overlap(I_df: pd.DataFrame,
                                            J_df: pd.DataFrame,
                                            pop_gdf: gpd.GeoDataFrame,
@@ -693,18 +725,12 @@ def evaluate_candidates_and_reduce_overlap(I_df: pd.DataFrame,
                                            max_J: int = 1200,
                                            approximate_pop_cover: bool = True,
                                            config: dict = None):
-    """
-    Backwards-compatible wrapper: chooses final J set trying to meet max_J but
-    uses improved evaluate_and_select_J logic with iterative relaxation.
-    """
     if J_df is None or J_df.empty:
         return pd.DataFrame()
 
     cfg = config or {}
     target_J = int(cfg.get("target_J", cfg.get("J_target", max_J)) if cfg is not None else max_J)
     target_J = min(max_J, target_J)
-
-    # compute with balanced defaults
     strategy = cfg.get("J_strategy", cfg.get("strategy", "balanced"))
     min_uncov_pop_frac = float(cfg.get("min_uncov_pop_frac", 0.002))
     overlap_keep = float(cfg.get("overlap_keep_threshold", overlap_keep_threshold))
@@ -714,10 +740,8 @@ def evaluate_candidates_and_reduce_overlap(I_df: pd.DataFrame,
                                      overlap_keep_threshold=overlap_keep,
                                      min_uncov_pop_frac=min_uncov_pop_frac,
                                      strategy=strategy)
-    # ensure selected has required columns and types
     if selected is None or selected.empty:
         return pd.DataFrame()
-    # add ids, i_ref mapping will be done later by caller (or below)
     selected = selected.reset_index(drop=True)
     return selected
 
@@ -727,7 +751,6 @@ def main(config: dict, out_dir: str or Path):
     out_dir.mkdir(parents=True, exist_ok=True)
 
     fe_cfg = config or {}
-    # default parameters (matching user's selection)
     pop_threshold = float(fe_cfg.get("pop_threshold", 5))
     eps_dbscan_m = float(fe_cfg.get("eps_dbscan_m", 1500))
     db_min_samples = int(fe_cfg.get("db_min_samples", 3))
@@ -742,12 +765,10 @@ def main(config: dict, out_dir: str or Path):
     dedup_round = int(fe_cfg.get("dedup_round", 5))
     seed = int(fe_cfg.get("seed", 42))
     pop_sample_max = int(fe_cfg.get("pop_sample_max", 12000))
-    # new: target_J and global sampling knob (defaults to user choice)
     target_J = int(fe_cfg.get("target_J", 1000))
-    global_sampling_level = fe_cfg.get("global_sampling", "medium")  # low/medium/high
+    global_sampling_level = fe_cfg.get("global_sampling", "medium")
     strategy = fe_cfg.get("J_strategy", fe_cfg.get("strategy", "balanced"))
 
-    # map global_sampling to n_global_samples
     if isinstance(global_sampling_level, str):
         if global_sampling_level.lower() == "low":
             n_global_samples = int(fe_cfg.get("global_samples_low", 250))
@@ -765,6 +786,12 @@ def main(config: dict, out_dir: str or Path):
     roads = read_geojson(str(CLEANED_DIR / "roads_hue_clean.geojson"))
     water = read_geojson(str(CLEANED_DIR / "water_hue_clean.geojson"))
 
+    # flood raster override from config or default path
+    flood_tif = fe_cfg.get("flood_tif", None)
+    if flood_tif is None:
+        # try environment default path defined earlier
+        flood_tif = str(FLOOD_TIF_DEFAULT) if FLOOD_TIF_DEFAULT.exists() else None
+
     active_bts, failed_bts = _read_bts_files(DAMAGE_BTS_DIR)
 
     np.random.seed(seed); random.seed(seed)
@@ -773,7 +800,6 @@ def main(config: dict, out_dir: str or Path):
     pop_gdf = extract_population_cells(pop_tif, threshold=pop_threshold)
     if (pop_gdf is None) or pop_gdf.empty:
         pop_gdf = gpd.GeoDataFrame(columns=["longitude","latitude","pop","geometry"], crs="EPSG:4326")
-    # clip to boundary if available
     if (boundary is not None) and (not pop_gdf.empty):
         try:
             pop_gdf = gpd.clip(pop_gdf, boundary)
@@ -784,7 +810,6 @@ def main(config: dict, out_dir: str or Path):
     pop_uncovered = remove_covered_by_active_bts(pop_gdf, active_bts)
     print(f"   population cells before: {len(pop_gdf)}, after removing active BTS coverage: {len(pop_uncovered)}")
 
-    # downsample pop cells for speed while preserving heavy-pop cells
     if len(pop_uncovered) > pop_sample_max:
         print(f"   Downsampling pop cells from {len(pop_uncovered)} to {pop_sample_max} for speed...")
         probs = pop_uncovered["pop"].values / pop_uncovered["pop"].sum()
@@ -819,7 +844,6 @@ def main(config: dict, out_dir: str or Path):
             "covered_cells": row["covered_cells"]
         } for _, row in selected_clusters.reset_index(drop=True).iterrows()])
 
-    # jitter I if too few
     if I_df is None or I_df.empty:
         I_df = pd.DataFrame(columns=["site_id","latitude","longitude","pop","covered_cells"])
     if len(I_df) < max_I and len(I_df) > 0:
@@ -849,11 +873,10 @@ def main(config: dict, out_dir: str or Path):
             infra_files[name] = str(p)
     I_df = assign_priority_to_I(I_df, infra_files, buffer_m=fe_cfg.get('infra_buffer_m', 1500))
 
-    print("5) Generate J candidate sites (upgraded)...")
-    # boundary used for global grid sampling
+    print("5) Generate J candidate sites (upgraded with flood filtering)...")
     boundary_gdf = boundary if boundary is not None else None
-    # generate a large but deduplicable pool
     J_pool = generate_J_candidates(I_df, roads, water, slope_tif,
+                                   flood_tif=flood_tif,
                                    candidate_per_cluster=candidate_per_cluster,
                                    jitter_m=jitter_m,
                                    slope_threshold=slope_threshold,
@@ -863,14 +886,15 @@ def main(config: dict, out_dir: str or Path):
                                    dedup_round=dedup_round,
                                    road_samples_per_line=int(fe_cfg.get('road_samples_per_line', 2)),
                                    extra_jitter_scales=tuple(fe_cfg.get('extra_jitter_scales', (100,300,800))),
-                                   boundary_gdf=boundary_gdf)
+                                   boundary_gdf=boundary_gdf,
+                                   flood_depth_threshold_m=float(fe_cfg.get('flood_depth_threshold_m',1.0))
+                                   )
 
     if J_pool is None or J_pool.empty:
         print("   No J candidates produced. Exiting with I only.")
         J_df = pd.DataFrame()
     else:
         print(f"   Candidate pool generated: {len(J_pool)} candidates")
-        # selection: try to meet target_J using balanced strategy
         sel = evaluate_candidates_and_reduce_overlap(I_df, J_pool, pop_uncovered,
                                                      radius_m=radius_I_m,
                                                      overlap_keep_threshold=fe_cfg.get('overlap_keep_threshold', 0.05),
@@ -881,11 +905,9 @@ def main(config: dict, out_dir: str or Path):
                                                              "overlap_keep_threshold": fe_cfg.get('overlap_keep_threshold', 0.05)})
         if sel is None or sel.empty:
             print("   Selection failed; falling back to top candidates by pop or spatial.")
-            # fallback: top by pop
             J_df = J_pool.head(min(max_J, len(J_pool))).reset_index(drop=True)
         else:
             J_df = sel.copy()
-            # attach i_ref, priority fields by nearest I (haversine)
             if (I_df is not None) and (not I_df.empty):
                 I_coords = I_df[['latitude','longitude']].rename(columns={'latitude':'y','longitude':'x'}).to_dict('records')
                 J_coords = J_df[['latitude','longitude']].rename(columns={'latitude':'y','longitude':'x'}).to_dict('records')
@@ -898,14 +920,12 @@ def main(config: dict, out_dir: str or Path):
                         i_refs.append(str(I_df.loc[nidx, "site_id"]))
                         pweights.append(float(I_df.loc[nidx, "priority_weight"]) if "priority_weight" in I_df.columns else 1.0)
                         pcats.append(str(I_df.loc[nidx, "priority_category"]) if "priority_category" in I_df.columns else "normal")
-                        # compute pop covered by this J (approx)
-                        pops.append(float(pop_uncovered.to_crs(epsg=3857).geometry.apply(lambda g: 0).sum()) if False else 0.0)
+                        pops.append(0.0)
                     except Exception:
                         i_refs.append(None); pweights.append(1.0); pcats.append("normal"); pops.append(0.0)
                 J_df["i_ref"] = i_refs
                 J_df["priority_weight"] = pweights
                 J_df["priority_category"] = pcats
-                # compute approximate pop covered (recompute with pop KDTree)
                 try:
                     pop_proj = pop_uncovered.to_crs(epsg=3857)
                     pop_coords = np.vstack([pop_proj.geometry.x.values, pop_proj.geometry.y.values]).T
@@ -917,7 +937,7 @@ def main(config: dict, out_dir: str or Path):
                         cx, cy = r.geometry.x, r.geometry.y
                         idxs = pop_kdt.query_ball_point([cx, cy], r=radius_I_m)
                         cover_idx.append(idxs)
-                    pops = [float(pop_vals[idxs].sum()) if len(idxs) else 0.0 for idxs in cover_idx]
+                    pops = [float(pop_vals[idxs].sum()) if len(idx) else 0.0 for idxs in cover_idx]
                     J_df["pop"] = pops
                 except Exception:
                     J_df["pop"] = 0.0
@@ -933,10 +953,8 @@ def main(config: dict, out_dir: str or Path):
             "site_id","i_ref","latitude","longitude","pop","priority_category","priority_weight","slope","dist_to_road_m","in_water"
         ])
     else:
-        # limit to max_J
         if len(J_df) > max_J:
             J_df = J_df.head(max_J).reset_index(drop=True)
-        # ensure columns
         if "site_id" not in J_df.columns:
             J_df["site_id"] = [f"J_{i:05d}" for i in range(len(J_df))]
         for c in ["latitude","longitude","pop","priority_weight","slope","dist_to_road_m"]:
@@ -953,6 +971,9 @@ def main(config: dict, out_dir: str or Path):
             J_df["i_ref"] = np.nan
         if "in_water" not in J_df.columns:
             J_df["in_water"] = False
+        # ensure flood_depth_m present (optional), but we will not include it in final columns to preserve output format
+        if "flood_depth_m" not in J_df.columns:
+            J_df["flood_depth_m"] = 0.0
         cols = ["site_id","i_ref","latitude","longitude","pop","priority_category","priority_weight","slope","dist_to_road_m","in_water"]
         for col in cols:
             if col not in J_df.columns:
@@ -963,7 +984,6 @@ def main(config: dict, out_dir: str or Path):
     if I_df is None or I_df.empty:
         I_out = pd.DataFrame(columns=["site_id","latitude","longitude","pop","priority_category","priority_weight"])
     else:
-        # ensure priority fields present
         if "priority_category" not in I_df.columns:
             I_df["priority_category"] = "normal"
         if "priority_weight" not in I_df.columns:
@@ -995,7 +1015,6 @@ def main(config: dict, out_dir: str or Path):
     return {"I_points": Path(out_dir) / "I_points.csv", "J_sites": Path(out_dir) / "J_sites.csv", "cover": Path(out_dir) / "cover.npy"}
 
 
-# script entry
 if __name__ == "__main__":
     import yaml
     proj = Path(__file__).resolve().parents[3]
