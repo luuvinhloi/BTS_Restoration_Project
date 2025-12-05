@@ -80,7 +80,7 @@ def run_pipeline(config_path):
     # )
 
     print("Stage 5: Generate data sets I, J and Calculate travel time and costs")
-    feature_extraction_final(cfg, str(PROJECT_ROOT / "data" / "processed" / "position_I_J"))
+    # feature_extraction_final(cfg, str(PROJECT_ROOT / "data" / "processed" / "position_I_J"))
     # feature_extraction(cfg, str(PROJECT_ROOT / "data" / "processed" / "position_I_J"))
     # feature_extraction_A(cfg, str(PROJECT_ROOT / "data" / "processed" / "position_I_J"))
     # feature_extraction_optimize_A(cfg, str(PROJECT_ROOT / "data" / "processed" / "position_I_J"))
@@ -141,7 +141,7 @@ def run_pipeline(config_path):
     #         run_simulation_scenario("GA_PSO")
 
     # Compute population coverage report
-    # run_map_visualization_all()
+    run_map_visualization_all()
 
     print("Stage 8: Computing population coverage (outage / COW coverage)...")
     # try:
