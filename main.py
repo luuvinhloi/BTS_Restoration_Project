@@ -41,6 +41,7 @@ from src.optimization.MILP.milp_solver import main_solve as milp_main
 from src.optimization.GA_PSO.ga_pso_hybrid_new import ga_pso_hybrid_main
 # from src.optimization.GA_PSO.ga_pso_hybrid import ga_pso_hybrid_main
 from src.optimization.GA_PSO.ga_pso_solver import run_from_config as ga_pso_main
+# from src.optimization.MILP_GA-PSO.hyhybrid_milp_ga_pso import run_hybrid
 
 # Stage 7: Visualization
 from src.visualization.simulation_scenario import run_simulation_scenario
@@ -96,7 +97,7 @@ def run_pipeline(config_path):
     # feature_extraction(cfg, str(PROJECT_ROOT / "data" / "processed" / "position_I_J"))
     # feature_extraction_A(cfg, str(PROJECT_ROOT / "data" / "processed" / "position_I_J"))
     # feature_extraction_optimize_A(cfg, str(PROJECT_ROOT / "data" / "processed" / "position_I_J"))
-    # feature_extraction_optimize_B(cfg, str(PROJECT_ROOT / "data" / "processed" / "position_I_J"))
+    feature_extraction_optimize_B(cfg, str(PROJECT_ROOT / "data" / "processed" / "position_I_J"))
 
     print("Computing travel time & cost matrix...")
     # compute_travel_matrix(
@@ -106,24 +107,24 @@ def run_pipeline(config_path):
     #     output_csv=str(PROJECT_ROOT / "data/processed/travel_cost/travel_cost_matrix_A.csv")
     # )
     #
-    # print("Computing travel time & cost for COW → J_sites...")
-    # compute_cow_travel_matrix(
-    #     cow_csv=str(PROJECT_ROOT / "data/processed/cow/cow_dataset.csv"),
-    #     site_csv=str(PROJECT_ROOT / "data/processed/position_I_J/J_sites.csv"),
-    #     graphml_path=str(PROJECT_ROOT / "data/processed/road/roads_flooded.graphml"),
-    #     output_csv=str(PROJECT_ROOT / "data/processed/travel_cost/cow_to_J_sites.csv"),
-    #     graph_pickle_cache=str(PROJECT_ROOT / "cache/flood_graph.pkl"),
-    # )
-    #
-    # print("Computing travel time & cost for Backup Power → Failed BTS...")
-    # compute_backup_travel_matrix(
-    #     backup_csv=str(PROJECT_ROOT / "data/processed/backup_power/backup_power.csv"),
-    #     outage_bts_csv=str(PROJECT_ROOT / "data/processed/damage_bts/failed_bts.csv"),
-    #     graphml_path=str(PROJECT_ROOT / "data/processed/road/roads_flooded.graphml"),
-    #     output_csv=str(PROJECT_ROOT / "data/processed/travel_cost/backup_to_failed_bts.csv"),
-    #     graph_pickle_cache=str(PROJECT_ROOT / "cache/flood_graph.pkl"),
-    #     optimize_for="time"
-    # )
+    print("Computing travel time & cost for COW → J_sites...")
+    compute_cow_travel_matrix(
+        cow_csv=str(PROJECT_ROOT / "data/processed/cow/cow_dataset.csv"),
+        site_csv=str(PROJECT_ROOT / "data/processed/position_I_J/J_sites.csv"),
+        graphml_path=str(PROJECT_ROOT / "data/processed/road/roads_flooded.graphml"),
+        output_csv=str(PROJECT_ROOT / "data/processed/travel_cost/cow_to_J_sites.csv"),
+        graph_pickle_cache=str(PROJECT_ROOT / "cache/flood_graph.pkl"),
+    )
+
+    print("Computing travel time & cost for Backup Power → Failed BTS...")
+    compute_backup_travel_matrix(
+        backup_csv=str(PROJECT_ROOT / "data/processed/backup_power/backup_power.csv"),
+        outage_bts_csv=str(PROJECT_ROOT / "data/processed/damage_bts/failed_bts.csv"),
+        graphml_path=str(PROJECT_ROOT / "data/processed/road/roads_flooded.graphml"),
+        output_csv=str(PROJECT_ROOT / "data/processed/travel_cost/backup_to_failed_bts.csv"),
+        graph_pickle_cache=str(PROJECT_ROOT / "cache/flood_graph.pkl"),
+        optimize_for="time"
+    )
 
     print("Stage 6: Optimization")
     # if method == "MILP":
@@ -184,8 +185,26 @@ def run_pipeline(config_path):
 
             print(f"Completed Run {i + 1}: best_fitness={summary.fitness}")
 
+
+    # elif method == "HYBRID":
+    #
+    #     print("Running Hybrid MILP + GA-PSO (Phương pháp 3)...")
+    #
+    #     max_iter = int(cfg.get("hybrid", {}).get("max_iter", 300))
+    #
+    #     top_k = int(cfg.get("hybrid", {}).get("top_k", 5))
+    #
+    #     result = run_hybrid(max_iter=max_iter, top_k=top_k)
+    #
+    #     print("\n=== Hybrid optimization finished ===")
+    #
+    #     print("Best fitness:", result["refined_best_f"])
+    #
+    #     print("Hybrid output saved to hybrid_result_summary.json")
+
+
     else:
-        raise ValueError(f"Unknown method '{method}'. Must be MILP or GA_PSO.")
+        raise ValueError(f"Unknown method '{method}'. Must be MILP, GA_PSO, or HYBRID.")
 
     #  Visualization
     print("Stage 7: Visualization")

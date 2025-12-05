@@ -47,7 +47,7 @@ def to_float(x, default=0.0):
 def load_all_data(processed_dir: str):
     p = Path(processed_dir)
     # files (as described in prompt)
-    j_sites = pd.read_csv(p / "position_I_J" / "J_sites.csv")
+    j_sites = pd.read_csv(p / "position_I_J" / "J_sites_B.csv")
     cows = pd.read_csv(p / "cow" / "cow_dataset.csv")
     backup_power = pd.read_csv(p / "backup_power" / "backup_power.csv")
     failed_bts = pd.read_csv(p / "damage_bts" / "failed_bts.csv")
