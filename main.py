@@ -11,6 +11,7 @@ from src.preprocessing.data_preparation.data_cleaning import main as run_cleanin
 # Stage 2: Generate BTS network, Generate COW dataset and Generate Backup Power dataset
 from src.preprocessing.bts_generation.generate_bts_network import main as generate_bts_network
 from src.preprocessing.cow_generation.cow_dataset_generator import generate_cow_dataset
+from src.preprocessing.backup_power.backup_power_generation import generate_backup_power_dataset
 
 # Stage 3: Generating Flood and Generating Flood road
 from src.preprocessing.flood_generation.flood_simulation_A import main as run_flood_simulation_A
@@ -27,7 +28,10 @@ from src.preprocessing.I_J_generation.feature_extraction_optimize_A import main 
 from src.preprocessing.I_J_generation.feature_extraction_optimize_B import main as feature_extraction_optimize_B
 from src.preprocessing.I_J_generation.feature_extraction_A import main as feature_extraction_A
 # Calculate travel time and costs
-from src.preprocessing.travel_cost.compute_travel_costs_A import compute_travel_matrix
+from src.preprocessing.travel_cost.compute_travel_costs_A import (
+    compute_cow_travel_matrix,
+    compute_backup_travel_matrix
+)
 
 # Stage 6: Optimization
 # from src.optimization import solver_milp
@@ -56,6 +60,11 @@ def run_pipeline(config_path):
     # generate_bts_network()
     # print("Generating COW dataset...")
     # generate_cow_dataset(str(PROJECT_ROOT / "data" / "processed"))
+    # print("Generating Backup Power dataset")
+    # generate_backup_power_dataset(
+    #     outage_csv_path=str(PROJECT_ROOT / "data" / "processed" / "damage_bts" / "failed_bts.csv"),
+    #     output_csv_path=str(PROJECT_ROOT / "data" / "processed" / "backup_power" / "backup_power.csv")
+    # )
 
     print("Stage 3: Generating Flood and Generating Flood road...")
     # run_flood_simulation_A()
@@ -93,6 +102,25 @@ def run_pipeline(config_path):
     #     roads_path=str(PROJECT_ROOT / "data/cleaned/roads_hue_clean.geojson"),
     #     output_csv=str(PROJECT_ROOT / "data/processed/travel_cost/travel_cost_matrix_A.csv")
     # )
+
+    print("Computing travel time & cost for COW → J_sites...")
+    compute_cow_travel_matrix(
+        cow_csv=str(PROJECT_ROOT / "data/processed/cow/cow_dataset.csv"),
+        site_csv=str(PROJECT_ROOT / "data/processed/position_I_J/J_sites.csv"),
+        graphml_path=str(PROJECT_ROOT / "data/processed/road/roads_flooded.graphml"),
+        output_csv=str(PROJECT_ROOT / "data/processed/travel_cost/cow_to_J_sites.csv"),
+        graph_pickle_cache=str(PROJECT_ROOT / "cache/flood_graph.pkl"),
+    )
+
+    print("Computing travel time & cost for Backup Power → Failed BTS...")
+    compute_backup_travel_matrix(
+        backup_csv=str(PROJECT_ROOT / "data/processed/backup_power/backup_power.csv"),
+        outage_bts_csv=str(PROJECT_ROOT / "data/processed/damage_bts/failed_bts.csv"),
+        graphml_path=str(PROJECT_ROOT / "data/processed/road/roads_flooded.graphml"),
+        output_csv=str(PROJECT_ROOT / "data/processed/travel_cost/backup_to_failed_bts.csv"),
+        graph_pickle_cache=str(PROJECT_ROOT / "cache/flood_graph.pkl"),
+        optimize_for="time"
+    )
 
     print("Stage 6: Optimization")
     # if method == "MILP":
