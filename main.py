@@ -40,6 +40,7 @@ from src.preprocessing.travel_cost.compute_travel_costs_A import (
 from src.optimization.MILP.milp_solver import main_solve as milp_main
 from src.optimization.GA_PSO.ga_pso_hybrid_new import ga_pso_hybrid_main
 # from src.optimization.GA_PSO.ga_pso_hybrid import ga_pso_hybrid_main
+from src.optimization.GA_PSO.ga_pso_solver import run_from_config as ga_pso_main
 
 # Stage 7: Visualization
 from src.visualization.simulation_scenario import run_simulation_scenario
@@ -155,20 +156,36 @@ def run_pipeline(config_path):
     #     #         str(PROJECT_ROOT / "outputs" / f"ga_pso_run_{i+1:02d}"),
     #     #         cfg["ga_pso"]
     #     #     )
-        print("Solving with GA–PSO (Phương pháp 2)...")
+    #     print("Solving with GA–PSO (Phương pháp 2)...")
+    #     runs = int(cfg.get("ga_pso", {}).get("runs", 1))
+    #     for i in range(runs):
+    #         print(f"    Run {i + 1}/{runs}")
+    #         # outputs per-run folder
+    #         out_dir = str(PROJECT_ROOT / "outputs" / f"ga_pso_run_{i + 1:02d}")
+    #         summary = ga_pso_hybrid_main(
+    #             str(PROJECT_ROOT / "data" / "processed"),
+    #             out_dir,
+    #             cfg.get("ga_pso", {})
+    #         )
+    #
+    # else:
+    #     raise ValueError(f"Unknown method '{method}'. Must be 'MILP' or 'GA_PSO'.")
+    elif method == "GA_PSO":
+        print("Running GA-PSO Hybrid (Method 2)...")
+
         runs = int(cfg.get("ga_pso", {}).get("runs", 1))
+
         for i in range(runs):
-            print(f"    Run {i + 1}/{runs}")
-            # outputs per-run folder
-            out_dir = str(PROJECT_ROOT / "outputs" / f"ga_pso_run_{i + 1:02d}")
-            summary = ga_pso_hybrid_main(
-                str(PROJECT_ROOT / "data" / "processed"),
-                out_dir,
-                cfg.get("ga_pso", {})
-            )
+            run_out_dir = str(PROJECT_ROOT / "outputs" / f"ga_pso_run_{i + 1:02d}")
+            print(f"  • Run {i + 1}/{runs} → output: {run_out_dir}")
+
+            # call module mới
+            summary = ga_pso_main(cfg)
+
+            print(f"Completed Run {i + 1}: best_fitness={summary.fitness}")
 
     else:
-        raise ValueError(f"Unknown method '{method}'. Must be 'MILP' or 'GA_PSO'.")
+        raise ValueError(f"Unknown method '{method}'. Must be MILP or GA_PSO.")
 
     #  Visualization
     print("Stage 7: Visualization")
