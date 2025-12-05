@@ -1,247 +1,180 @@
-# src/optimization/milp_pulp.py
-"""
-MILP builder using PuLP for COW deployment lexicographic optimization.
-
-Notes and changes:
-- endurance_hr in cow records is interpreted as the maximum *broadcast* (operation) time
-  a COW can sustain (hours). It is NOT travel time.
-- Added configurable behavior via params:
-    params["endurance_mode"] in {"none","broadcast","travel_plus_setup","total"}
-    params["required_broadcast_time_h"] (float, default 0.0)
-  to control how endurance is enforced:
-    - "none": do not enforce endurance
-    - "broadcast": require required_broadcast_time_h <= cow.endurance_hr (global requirement)
-    - "travel_plus_setup": require travel_time + setup_time <= cow.endurance_hr (per assignment)
-    - "total": require travel_time + setup_time + required_broadcast_time_h <= cow.endurance_hr (per assignment)
-- If enforcement fails for a (cow,site) the assignment x[cow][site] is forced to 0.
-"""
-
 from math import radians, sin, cos, asin, sqrt
 import pulp
-from collections import defaultdict
 
 
 def haversine_km(lat1, lon1, lat2, lon2):
-    """Haversine distance in kilometers."""
     R = 6371.0
     lat1, lon1, lat2, lon2 = map(radians, (lat1, lon1, lat2, lon2))
     dlat = lat2 - lat1
     dlon = lon2 - lon1
-    a = sin(dlat/2)**2 + cos(lat1)*cos(lat2)*sin(dlon/2)**2
+    a = sin(dlat / 2) ** 2 + cos(lat1) * cos(lat2) * sin(dlon / 2) ** 2
     c = 2 * asin(sqrt(a))
     return R * c
 
 
-def build_base_problem(demand_list, site_list, cows, travel_matrix,
-                       cover_indicator, params,
-                       solver_name="CBC"):
-    """
-    Build base PuLP problem (variables + common constraints) for lexicographic steps.
+def build_base_problem(I_points, J_sites, BTS_failed, cows, backup_powers,
+                       cow_travel, backup_travel, params, solver_name="CBC"):
 
-    Inputs:
-      - demand_list: list of demand dicts each with keys: site_id, latitude, longitude, pop, ...
-      - site_list: list of candidate site dicts (same structure)
-      - cows: list of cow dicts each with cow_id, base_id, coverage_radius_m, endurance_hr, cost_vnd, speed_kmh, ...
-      - travel_matrix: dict keyed (cow_id, site_id) -> dict(distance_km, travel_time_hr, travel_cost_vnd)
-      - cover_indicator: dict keyed (i_site_id, deploy_site_id, cow_id) -> 0/1 whether cow at deploy_site covers demand i
-      - params: dict from params.yaml (contains budget_max, M_max, default_setup_time_h, etc.)
-      - solver_name: "GUROBI" or "CBC" (affects solver selection when solve called)
-    Returns:
-      - prob: pulp.LpProblem object
-      - var_dict: dictionary with variable objects and helper meta
-    """
+    prob = pulp.LpProblem("MILP_Full", pulp.LpMinimize)
 
-    # Create problem (objective to be set per lexicographic step)
-    prob = pulp.LpProblem("COW_Lexicographic_Base", pulp.LpMinimize)
+    I_ids = [i["site_id"] for i in I_points]
+    J_ids = [j["site_id"] for j in J_sites]
+    B_ids = [b["site_id"] for b in BTS_failed]
+    C_ids = [c["cow_id"] for c in cows]
+    G_ids = [g["power_id"] for g in backup_powers]
 
-    # Index sets
-    demand_ids = [d["site_id"] for d in demand_list]
-    site_ids = [s["site_id"] for s in site_list]
-    cow_ids = [c["cow_id"] for c in cows]
-
-    # Parameters
     budget_max = float(params.get("budget_max", 5e8))
     M_max = int(params.get("M_max", len(cows)))
     setup_time_h = float(params.get("default_setup_time_h", 0.5))
-
-    # Endurance related params (new)
-    endurance_mode = params.get("endurance_mode", "none")  # "none","broadcast","travel_plus_setup","total"
+    endurance_mode = params.get("endurance_mode", "none")
     required_broadcast_time_h = float(params.get("required_broadcast_time_h", 0.0))
 
-    # Decision variables
-    # x_kj : 1 if cow k is deployed at site j
-    x = pulp.LpVariable.dicts("x", (cow_ids, site_ids), cat="Binary")
+    I_map = {i["site_id"]: i for i in I_points}
+    J_map = {j["site_id"]: j for j in J_sites}
+    B_map = {b["site_id"]: b for b in BTS_failed}
+    C_map = {c["cow_id"]: c for c in cows}
+    G_map = {g["power_id"]: g for g in backup_powers}
 
-    # y_ij : 1 if demand i is served by deployment at site j (note: non-overlap constraint ensures each demand at most 1)
-    y = pulp.LpVariable.dicts("y", (demand_ids, site_ids), cat="Binary")
+    # BTS required power (kW)
+    bts_required_kw = {}
+    for b in BTS_failed:
+        try:
+            bts_required_kw[b["site_id"]] = float(b.get("power_W", 0.0)) / 1000.0
+        except:
+            bts_required_kw[b["site_id"]] = 0.0
 
-    # z_i : 1 if demand i is covered by any deployment
-    z = pulp.LpVariable.dicts("z", (demand_ids,), cat="Binary")
-
-    # T_max : maximum deployment completion time (hours)
-    T_max = pulp.LpVariable("T_max", lowBound=0, cat="Continuous")
-
-    # Common constraints
-
-    # 1) Each cow at most 1 deployment (some cows may remain unused)
-    for k in cow_ids:
-        prob += pulp.lpSum([x[k][j] for j in site_ids]) <= 1, f"one_deploy_per_cow_{k}"
-
-    # 2) Each site may have at most 1 cow deployed
-    for j in site_ids:
-        prob += pulp.lpSum([x[k][j] for k in cow_ids]) <= 1, f"one_cow_per_site_{j}"
-
-    # 3) Non-overlap: each demand at most one serving site
-    for i in demand_ids:
-        prob += pulp.lpSum([y[i][j] for j in site_ids]) <= 1, f"non_overlap_demand_{i}"
-
-    # 4) y_ij only if there exists a deployed cow at j that can cover i:
-    #    y[i,j] <= sum_k cover_ikj * x[k,j]
-    for i in demand_ids:
-        for j in site_ids:
-            # compute set of cows that can cover demand i when deployed at j
-            coverable_cows = [k for k in cow_ids if cover_indicator.get((i, j, k), 0) == 1]
-            if len(coverable_cows) == 0:
-                # If no cow can cover i from j, force y[i,j] = 0
-                prob += y[i][j] == 0, f"no_cover_possible_{i}_{j}"
+    # Power source capacity (kW)
+    g_power_kw = {}
+    for g in backup_powers:
+        if "power_kw" in g and g["power_kw"] not in (None, ""):
+            g_power_kw[g["power_id"]] = float(g.get("power_kw"))
+        else:
+            if "resource_amount" in g:
+                try:
+                    g_power_kw[g["power_id"]] = float(g["resource_amount"])
+                except:
+                    g_power_kw[g["power_id"]] = 10.0
             else:
-                prob += y[i][j] <= pulp.lpSum([x[k][j] for k in coverable_cows]), f"y_implies_x_cover_{i}_{j}"
+                typ = str(g.get("type", "")).upper()
+                g_power_kw[g["power_id"]] = 10.0 if "GEN" in typ else 2.0
 
-    # 5) z_i <= sum_j y_ij  (if any y assigned then z can be 1)
-    for i in demand_ids:
-        prob += z[i] <= pulp.lpSum([y[i][j] for j in site_ids]), f"z_def_{i}"
+    x = pulp.LpVariable.dicts("x", (C_ids, J_ids), 0, 1, pulp.LpBinary)
+    w_cow = pulp.LpVariable.dicts("w_cow", (C_ids, I_ids), 0, 1, pulp.LpBinary)
+    w_bts = pulp.LpVariable.dicts("w_bts", (B_ids, I_ids), 0, 1, pulp.LpBinary)
+    z = pulp.LpVariable.dicts("z", (G_ids, B_ids), 0, 1, pulp.LpBinary)
+    u = pulp.LpVariable.dicts("u", B_ids, 0, 1, pulp.LpBinary)
+    y = pulp.LpVariable.dicts("y", I_ids, 0, 1, pulp.LpBinary)
+    T_max = pulp.LpVariable("T_max", lowBound=0)
 
-    # 6) Budget constraint (total deployment cost + travel cost <= budget)
-    total_cost_expr = []
-    for k in cow_ids:
-        cow_cost = float(next(c for c in cows if c["cow_id"] == k).get("cost_vnd", 0.0))
-        for j in site_ids:
-            travel_cost_vnd = float(travel_matrix.get((k, j), {}).get("travel_cost_vnd", 0.0))
-            total_cost_expr.append(cow_cost * x[k][j] + travel_cost_vnd * x[k][j])
-    prob += pulp.lpSum(total_cost_expr) <= budget_max, "budget_constraint"
+    # Constraint 1: each COW at most one J
+    for c in C_ids:
+        prob += pulp.lpSum([x[c][j] for j in J_ids]) <= 1
 
-    # 7) M_max constraint: total number of deployed cows <= M_max
-    prob += pulp.lpSum([x[k][j] for k in cow_ids for j in site_ids]) <= M_max, "M_max_constraint"
+    # Constraint 2: each J at most one COW
+    for j in J_ids:
+        prob += pulp.lpSum([x[c][j] for c in C_ids]) <= 1
 
-    # 8) Endurance constraint (reworked):
-    #    We interpret cow["endurance_hr"] as the max broadcast (operation) time for that COW.
-    #    Behavior controlled by endurance_mode:
-    #      - "none": do nothing
-    #      - "broadcast": if required_broadcast_time_h > cow.endurance_hr -> cow cannot be used (x[k][j]==0 for all j)
-    #      - "travel_plus_setup": if travel_time_hr + setup_time_h > cow.endurance_hr -> disallow that assignment (x[k][j]==0)
-    #      - "total": if travel_time_hr + setup_time_h + required_broadcast_time_h > cow.endurance_hr -> disallow assignment
-    if endurance_mode not in {"none", "broadcast", "travel_plus_setup", "total"}:
-        # fallback to none if an unknown mode provided
-        endurance_mode = "none"
+    # Constraint 3: each I at most one provider
+    for i in I_ids:
+        prob += pulp.lpSum([w_bts[b][i] for b in B_ids]) + pulp.lpSum([w_cow[c][i] for c in C_ids]) <= 1
 
-    if endurance_mode == "broadcast":
-        # Global check: if required broadcast time exceeds cow endurance, cow cannot be used at all
-        if required_broadcast_time_h > 0.0:
-            for k in cow_ids:
-                cow_endurance = float(next(c for c in cows if c["cow_id"] == k).get("endurance_hr", 0.0))
-                if required_broadcast_time_h > cow_endurance:
-                    # No assignment allowed for this cow
-                    for j in site_ids:
-                        prob += x[k][j] == 0, f"endurance_broadcast_violation_{k}_{j}"
+    # Constraint 4: y links to w
+    for i in I_ids:
+        prob += y[i] <= pulp.lpSum([w_bts[b][i] for b in B_ids]) + pulp.lpSum([w_cow[c][i] for c in C_ids])
+        prob += pulp.lpSum([w_bts[b][i] for b in B_ids]) + pulp.lpSum([w_cow[c][i] for c in C_ids]) <= y[i] * 1e6
 
-    elif endurance_mode in {"travel_plus_setup", "total"}:
-        # Per-assignment checks
-        for k in cow_ids:
-            cow_endurance = float(next(c for c in cows if c["cow_id"] == k).get("endurance_hr", 0.0))
-            for j in site_ids:
-                travel_time_hr = float(travel_matrix.get((k, j), {}).get("travel_time_hr", 0.0))
-                # compute required total time depending on mode
-                required_time = travel_time_hr + setup_time_h
+    # Constraint 5: BTS coverage
+    for b in B_ids:
+        bi = B_map[b]
+        for i in I_ids:
+            ii = I_map[i]
+            dkm = haversine_km(bi["latitude"], bi["longitude"], ii["latitude"], ii["longitude"])
+            covers = dkm * 1000 <= float(bi.get("coverage_radius_m", params.get("default_R", 3000)))
+            if not covers:
+                prob += w_bts[b][i] == 0
+            else:
+                prob += w_bts[b][i] <= u[b]
+
+    # Constraint 6: COW coverage
+    for c in C_ids:
+        crow = C_map[c]
+        radius = float(crow.get("coverage_radius_m", params.get("default_R", 3000)))
+        for i in I_ids:
+            ii = I_map[i]
+            coverable = []
+            for j in J_ids:
+                jj = J_map[j]
+                dkm = haversine_km(ii["latitude"], ii["longitude"], jj["latitude"], jj["longitude"])
+                if dkm * 1000 <= radius:
+                    coverable.append(j)
+            if not coverable:
+                prob += w_cow[c][i] == 0
+            else:
+                prob += w_cow[c][i] <= pulp.lpSum([x[c][j] for j in coverable])
+
+    # Constraint 7: each BTS gets ≤1 source
+    for b in B_ids:
+        prob += pulp.lpSum([z[g][b] for g in G_ids]) <= 1
+        prob += u[b] <= pulp.lpSum([z[g][b] for g in G_ids])
+
+    # Constraint 8: Power satisfaction
+    for b in B_ids:
+        prob += pulp.lpSum([z[g][b] * g_power_kw[g] for g in G_ids]) >= bts_required_kw[b] * u[b]
+
+    # Constraint 9: Endurance (optional)
+    if endurance_mode in ("travel_plus_setup", "total"):
+        for c in C_ids:
+            endur = float(C_map[c].get("endurance_hr", 0))
+            for j in J_ids:
+                travel = float(cow_travel.get((c, j), {}).get("travel_time_hr", 0))
+                needed = travel + setup_time_h
                 if endurance_mode == "total":
-                    required_time += required_broadcast_time_h
-                # if required_time is greater than cow endurance => cannot assign cow k to site j
-                if required_time > cow_endurance:
-                    prob += x[k][j] == 0, f"endurance_violation_{endurance_mode}_{k}_{j}"
-    # else: "none" -> no constraints added
+                    needed += required_broadcast_time_h
+                if needed > endur:
+                    prob += x[c][j] == 0
 
-    # 9) T_max constraints:
-    #    For each possible assignment (k,j): T_max >= (travel_time_hr + setup_time_h) * x[k][j]
-    for k in cow_ids:
-        for j in site_ids:
-            travel_time_hr = float(travel_matrix.get((k, j), {}).get("travel_time_hr", 0.0))
-            prob += T_max >= (travel_time_hr + setup_time_h) * x[k][j], f"Tmax_def_{k}_{j}"
+    # Constraint 10: Budget
+    cost_terms = []
+    for c in C_ids:
+        cow_cost = float(C_map[c].get("cost_vnd", 0))
+        for j in J_ids:
+            travel = float(cow_travel.get((c, j), {}).get("travel_cost_vnd", 0))
+            cost_terms.append((cow_cost + travel) * x[c][j])
 
-    # Return problem and variable references
-    var_dict = {
+    for g in G_ids:
+        g_cost = float(G_map[g].get("cost_vnd_24h", 0))
+        for b in B_ids:
+            travel = float(backup_travel.get((g, b), {}).get("total_cost_vnd", 0))
+            cost_terms.append((g_cost + travel) * z[g][b])
+
+    prob += pulp.lpSum(cost_terms) <= budget_max
+
+    # Constraint 11: M_max
+    prob += pulp.lpSum([x[c][j] for c in C_ids for j in J_ids]) <= M_max
+
+    # Constraint 12: T_max
+    for c in C_ids:
+        for j in J_ids:
+            t = float(cow_travel.get((c, j), {}).get("travel_time_hr", 0))
+            prob += T_max >= (t + setup_time_h) * x[c][j]
+
+    for g in G_ids:
+        for b in B_ids:
+            t = float(backup_travel.get((g, b), {}).get("total_time_hr", 0))
+            prob += T_max >= t * z[g][b]
+
+    return prob, {
         "x": x,
-        "y": y,
+        "w_cow": w_cow,
+        "w_bts": w_bts,
         "z": z,
+        "u": u,
+        "y": y,
         "T_max": T_max,
-        "demand_ids": demand_ids,
-        "site_ids": site_ids,
-        "cow_ids": cow_ids,
-        "budget_max": budget_max,
-        "setup_time_h": setup_time_h,
-        "endurance_mode": endurance_mode,
-        "required_broadcast_time_h": required_broadcast_time_h
+        "I_ids": I_ids,
+        "J_ids": J_ids,
+        "B_ids": B_ids,
+        "C_ids": C_ids,
+        "G_ids": G_ids,
+        "maps": {"I": I_map, "J": J_map, "B": B_map, "C": C_map, "G": G_map},
     }
-    return prob, var_dict
-
-
-def extract_solution(var_dict, cows, site_list, demand_list, travel_matrix):
-    """
-    Extract and summarize solution from variables after solve.
-    Returns a dict with assignment, coverage, costs, times.
-    """
-    x = var_dict["x"]
-    y = var_dict["y"]
-    z = var_dict["z"]
-    T_max_var = var_dict["T_max"]
-    demand_ids = var_dict["demand_ids"]
-    site_ids = var_dict["site_ids"]
-    cow_ids = var_dict["cow_ids"]
-
-    # Assignments: list of (cow_id, site_id) with x=1
-    assignments = []
-    for k in cow_ids:
-        for j in site_ids:
-            val = pulp.value(x[k][j])
-            if val is not None and round(val) == 1:
-                assignments.append((k, j))
-
-    # Served demands: mapping demand_id -> serving site (or None)
-    demand_served = {}
-    total_pop_served = 0.0
-    for i in demand_ids:
-        served = False
-        for j in site_ids:
-            val = pulp.value(y[i][j])
-            if val is not None and round(val) == 1:
-                demand_served[i] = j
-                served = True
-                break
-        if not served:
-            demand_served[i] = None
-        pop_i = float(next(d for d in demand_list if d["site_id"] == i).get("pop", 0.0))
-        if served:
-            total_pop_served += pop_i
-
-    # Total cost and time
-    total_travel_cost = 0.0
-    total_broadcast_cost = 0.0
-    for (k, j) in assignments:
-        travel_cost_vnd = float(travel_matrix.get((k, j), {}).get("travel_cost_vnd", 0.0))
-        cow_cost = float(next(c for c in cows if c["cow_id"] == k).get("cost_vnd", 0.0))
-        total_travel_cost += travel_cost_vnd
-        total_broadcast_cost += cow_cost
-
-    total_cost = total_travel_cost + total_broadcast_cost
-
-    # T_max value
-    T_max_value = pulp.value(T_max_var)
-
-    summary = {
-        "assignments": assignments,
-        "demand_served": demand_served,
-        "total_pop_served": total_pop_served,
-        "total_cost_vnd": total_cost,
-        "total_travel_cost_vnd": total_travel_cost,
-        "total_broadcast_cost_vnd": total_broadcast_cost,
-        "T_max_hr": T_max_value
-    }
-    return summary

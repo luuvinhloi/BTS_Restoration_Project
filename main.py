@@ -35,7 +35,9 @@ from src.preprocessing.travel_cost.compute_travel_costs_A import (
 
 # Stage 6: Optimization
 # from src.optimization import solver_milp
-from src.optimization.MILP.solver_milp import main_solve as milp_lexi_solve
+# from src.optimization.MILP.solver_milp import main_solve as milp_lexi_solve
+# from src.optimization.MILP.solver_milp import run_lexicographic as milp_run
+from src.optimization.MILP.milp_solver import main_solve as milp_main
 from src.optimization.GA_PSO.ga_pso_hybrid_new import ga_pso_hybrid_main
 # from src.optimization.GA_PSO.ga_pso_hybrid import ga_pso_hybrid_main
 
@@ -102,36 +104,46 @@ def run_pipeline(config_path):
     #     roads_path=str(PROJECT_ROOT / "data/cleaned/roads_hue_clean.geojson"),
     #     output_csv=str(PROJECT_ROOT / "data/processed/travel_cost/travel_cost_matrix_A.csv")
     # )
-
-    print("Computing travel time & cost for COW → J_sites...")
-    compute_cow_travel_matrix(
-        cow_csv=str(PROJECT_ROOT / "data/processed/cow/cow_dataset.csv"),
-        site_csv=str(PROJECT_ROOT / "data/processed/position_I_J/J_sites.csv"),
-        graphml_path=str(PROJECT_ROOT / "data/processed/road/roads_flooded.graphml"),
-        output_csv=str(PROJECT_ROOT / "data/processed/travel_cost/cow_to_J_sites.csv"),
-        graph_pickle_cache=str(PROJECT_ROOT / "cache/flood_graph.pkl"),
-    )
-
-    print("Computing travel time & cost for Backup Power → Failed BTS...")
-    compute_backup_travel_matrix(
-        backup_csv=str(PROJECT_ROOT / "data/processed/backup_power/backup_power.csv"),
-        outage_bts_csv=str(PROJECT_ROOT / "data/processed/damage_bts/failed_bts.csv"),
-        graphml_path=str(PROJECT_ROOT / "data/processed/road/roads_flooded.graphml"),
-        output_csv=str(PROJECT_ROOT / "data/processed/travel_cost/backup_to_failed_bts.csv"),
-        graph_pickle_cache=str(PROJECT_ROOT / "cache/flood_graph.pkl"),
-        optimize_for="time"
-    )
+    #
+    # print("Computing travel time & cost for COW → J_sites...")
+    # compute_cow_travel_matrix(
+    #     cow_csv=str(PROJECT_ROOT / "data/processed/cow/cow_dataset.csv"),
+    #     site_csv=str(PROJECT_ROOT / "data/processed/position_I_J/J_sites.csv"),
+    #     graphml_path=str(PROJECT_ROOT / "data/processed/road/roads_flooded.graphml"),
+    #     output_csv=str(PROJECT_ROOT / "data/processed/travel_cost/cow_to_J_sites.csv"),
+    #     graph_pickle_cache=str(PROJECT_ROOT / "cache/flood_graph.pkl"),
+    # )
+    #
+    # print("Computing travel time & cost for Backup Power → Failed BTS...")
+    # compute_backup_travel_matrix(
+    #     backup_csv=str(PROJECT_ROOT / "data/processed/backup_power/backup_power.csv"),
+    #     outage_bts_csv=str(PROJECT_ROOT / "data/processed/damage_bts/failed_bts.csv"),
+    #     graphml_path=str(PROJECT_ROOT / "data/processed/road/roads_flooded.graphml"),
+    #     output_csv=str(PROJECT_ROOT / "data/processed/travel_cost/backup_to_failed_bts.csv"),
+    #     graph_pickle_cache=str(PROJECT_ROOT / "cache/flood_graph.pkl"),
+    #     optimize_for="time"
+    # )
 
     print("Stage 6: Optimization")
     # if method == "MILP":
-    #     # print("Solving with MILP (Phương pháp 1)...")
-    #     # out = solver_milp.solve_milp(config_path, str(PROJECT_ROOT / "data" / "processed"))
-    #     print("6) Solving with MILP (Phương pháp 1 - PuLP Lexicographic)...")
-    #     out = milp_lexi_solve(
-    #         config_path=config_path,
-    #         processed_data_dir=str(PROJECT_ROOT / "data" / "processed"),
+    #     print("6) Solving with MILP (Full model - lexicographic)...")
+    #     # run_lexicographic expects (params_path, processed_dir, outputs_dir=None)
+    #     out = milp_run(
+    #         params_path=config_path,
+    #         processed_dir=str(PROJECT_ROOT / "data" / "processed"),
     #         outputs_dir=str(PROJECT_ROOT / "outputs" / "milp_runs")
     #     )
+    processed_dir = str(PROJECT_ROOT / "data" / "processed")
+    outputs_dir = str(PROJECT_ROOT / "outputs" / "milp_runs")
+
+    if method == "MILP":
+        print("6) Solving with MILP (Full model - lexicographic)...")
+        # milp_main expects: (config_params: dict, processed_data_dir: str, outputs_dir: str)
+        # We pass the loaded YAML dict 'cfg' as params (milp module will use defaults for missing keys).
+        results = milp_main(cfg, processed_dir, outputs_dir)
+        # milp_main returns a list of solver results; handle as needed
+        print("MILP finished. Results object returned.")
+
     #
     # elif method == "GA_PSO":
     #     # print("Solving with GA–PSO (Phương pháp 2)...")
@@ -143,20 +155,20 @@ def run_pipeline(config_path):
     #     #         str(PROJECT_ROOT / "outputs" / f"ga_pso_run_{i+1:02d}"),
     #     #         cfg["ga_pso"]
     #     #     )
-    #     print("Solving with GA–PSO (Phương pháp 2)...")
-    #     runs = int(cfg.get("ga_pso", {}).get("runs", 1))
-    #     for i in range(runs):
-    #         print(f"    Run {i + 1}/{runs}")
-    #         # outputs per-run folder
-    #         out_dir = str(PROJECT_ROOT / "outputs" / f"ga_pso_run_{i + 1:02d}")
-    #         summary = ga_pso_hybrid_main(
-    #             str(PROJECT_ROOT / "data" / "processed"),
-    #             out_dir,
-    #             cfg.get("ga_pso", {})
-    #         )
-    #
-    # else:
-    #     raise ValueError(f"Unknown method '{method}'. Must be 'MILP' or 'GA_PSO'.")
+        print("Solving with GA–PSO (Phương pháp 2)...")
+        runs = int(cfg.get("ga_pso", {}).get("runs", 1))
+        for i in range(runs):
+            print(f"    Run {i + 1}/{runs}")
+            # outputs per-run folder
+            out_dir = str(PROJECT_ROOT / "outputs" / f"ga_pso_run_{i + 1:02d}")
+            summary = ga_pso_hybrid_main(
+                str(PROJECT_ROOT / "data" / "processed"),
+                out_dir,
+                cfg.get("ga_pso", {})
+            )
+
+    else:
+        raise ValueError(f"Unknown method '{method}'. Must be 'MILP' or 'GA_PSO'.")
 
     #  Visualization
     print("Stage 7: Visualization")
@@ -169,7 +181,7 @@ def run_pipeline(config_path):
     #         run_simulation_scenario("GA_PSO")
 
     # Compute population coverage report
-    run_map_visualization_all()
+    # run_map_visualization_all()
 
     print("Stage 8: Computing population coverage (outage / COW coverage)...")
     # try:

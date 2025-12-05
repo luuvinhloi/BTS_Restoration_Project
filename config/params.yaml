@@ -2,14 +2,14 @@
 # CẤU HÌNH CHUNG CHO TOÀN BỘ PIPELINE
 
 # Lựa chọn phương pháp chính
-method: "GA_PSO"                # "MILP" hoặc "GA_PSO" để điều khiển pipeline
+method: "MILP"                # "MILP" hoặc "GA_PSO" để điều khiển pipeline
 
 # Tham số mô phỏng & hệ thống
 damage_rate: 0.85             # Tỉ lệ BTS bị hỏng (0.6–0.9)
 population_sample_limit: 2000 # Giới hạn số điểm dân cư mẫu
 candidate_max: 1000            # Số điểm ứng viên tối đa cho COW
 M_max: 20                     # Số lượng xe COW tối đa có thể triển khai
-budget_max: 5e8               # Ngân sách tối đa (VNĐ)
+budget_max: 1e9               # Ngân sách tối đa (VNĐ)
 cover_ratio: 1.0              # Hệ số bao phủ
 seed: 42                      # Seed ngẫu nhiên để tái lập kết quả
 
