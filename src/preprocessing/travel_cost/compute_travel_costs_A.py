@@ -496,7 +496,7 @@ if __name__ == "__main__":
     base_dir = "data/processed"
     graphml = os.path.join(base_dir, "road", "roads_flooded.graphml")
     cow_csv = "data/processed/cow/cow_dataset.csv"
-    j_sites = "data/processed/position_I_J/J_sites.csv"
+    j_sites = "data/processed/position_I_J/J_sites_B.csv"
     cow_out = "data/processed/travel_cost/cow_to_sites.csv"
     backup_csv = "data/processed/backup_power/backup_power.csv"
     outages_csv = "data/processed/damage_bts/failed_bts.csv"

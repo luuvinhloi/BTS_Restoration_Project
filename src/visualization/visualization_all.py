@@ -1,6 +1,6 @@
 """
 Flood Map Visualization – Hydrology Style Coloring (Custom Colors)
-+ Overlay I_points.csv & J_sites.csv
++ Overlay I_points_B.csv & J_sites_B.csv
 """
 
 from pathlib import Path
@@ -25,8 +25,8 @@ WATER_POLY = PROJECT_ROOT / "data" / "cleaned" / "water_hue_clean.geojson"
 BOUNDARY_PATH = PROJECT_ROOT / "data" / "cleaned" / "hue_boundary_clean.geojson"
 
 # NEW — file paths for I & J sets
-I_POINTS_PATH = PROJECT_ROOT / "data" / "processed" / "position_I_J" / "I_points.csv"
-J_SITES_PATH  = PROJECT_ROOT / "data" / "processed" / "position_I_J" / "J_sites.csv"
+I_points_B_PATH = PROJECT_ROOT / "data" / "processed" / "position_I_J" / "I_points_B.csv"
+J_sites_B_PATH  = PROJECT_ROOT / "data" / "processed" / "position_I_J" / "J_sites_B.csv"
 
 OUTPUT_DIR = PROJECT_ROOT / "outputs" / "visualization"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -79,13 +79,13 @@ def _load_boundary():
 
 
 # ---------------------------------------------------------
-# LOAD I_points & J_sites
+# LOAD I_points_B & J_sites_B
 # ---------------------------------------------------------
 def load_points():
-    print("[INFO] Loading I_points.csv & J_sites.csv ...")
+    print("[INFO] Loading I_points_B.csv & J_sites_B.csv ...")
 
-    df_I = pd.read_csv(I_POINTS_PATH)
-    df_J = pd.read_csv(J_SITES_PATH)
+    df_I = pd.read_csv(I_points_B_PATH)
+    df_J = pd.read_csv(J_sites_B_PATH)
 
     # Chuyển sang GeoDataFrame để dễ xử lý
     gdf_I = gpd.GeoDataFrame(

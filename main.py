@@ -97,7 +97,7 @@ def run_pipeline(config_path):
     # feature_extraction(cfg, str(PROJECT_ROOT / "data" / "processed" / "position_I_J"))
     # feature_extraction_A(cfg, str(PROJECT_ROOT / "data" / "processed" / "position_I_J"))
     # feature_extraction_optimize_A(cfg, str(PROJECT_ROOT / "data" / "processed" / "position_I_J"))
-    feature_extraction_optimize_B(cfg, str(PROJECT_ROOT / "data" / "processed" / "position_I_J"))
+    # feature_extraction_optimize_B(cfg, str(PROJECT_ROOT / "data" / "processed" / "position_I_J"))
 
     print("Computing travel time & cost matrix...")
     # compute_travel_matrix(
@@ -107,24 +107,24 @@ def run_pipeline(config_path):
     #     output_csv=str(PROJECT_ROOT / "data/processed/travel_cost/travel_cost_matrix_A.csv")
     # )
     #
-    print("Computing travel time & cost for COW → J_sites...")
-    compute_cow_travel_matrix(
-        cow_csv=str(PROJECT_ROOT / "data/processed/cow/cow_dataset.csv"),
-        site_csv=str(PROJECT_ROOT / "data/processed/position_I_J/J_sites.csv"),
-        graphml_path=str(PROJECT_ROOT / "data/processed/road/roads_flooded.graphml"),
-        output_csv=str(PROJECT_ROOT / "data/processed/travel_cost/cow_to_J_sites.csv"),
-        graph_pickle_cache=str(PROJECT_ROOT / "cache/flood_graph.pkl"),
-    )
-
-    print("Computing travel time & cost for Backup Power → Failed BTS...")
-    compute_backup_travel_matrix(
-        backup_csv=str(PROJECT_ROOT / "data/processed/backup_power/backup_power.csv"),
-        outage_bts_csv=str(PROJECT_ROOT / "data/processed/damage_bts/failed_bts.csv"),
-        graphml_path=str(PROJECT_ROOT / "data/processed/road/roads_flooded.graphml"),
-        output_csv=str(PROJECT_ROOT / "data/processed/travel_cost/backup_to_failed_bts.csv"),
-        graph_pickle_cache=str(PROJECT_ROOT / "cache/flood_graph.pkl"),
-        optimize_for="time"
-    )
+    # print("Computing travel time & cost for COW → J_sites...")
+    # compute_cow_travel_matrix(
+    #     cow_csv=str(PROJECT_ROOT / "data/processed/cow/cow_dataset.csv"),
+    #     site_csv=str(PROJECT_ROOT / "data/processed/position_I_J/J_sites_B.csv"),
+    #     graphml_path=str(PROJECT_ROOT / "data/processed/road/roads_flooded.graphml"),
+    #     output_csv=str(PROJECT_ROOT / "data/processed/travel_cost/cow_to_J_sites.csv"),
+    #     graph_pickle_cache=str(PROJECT_ROOT / "cache/flood_graph.pkl"),
+    # )
+    #
+    # print("Computing travel time & cost for Backup Power → Failed BTS...")
+    # compute_backup_travel_matrix(
+    #     backup_csv=str(PROJECT_ROOT / "data/processed/backup_power/backup_power.csv"),
+    #     outage_bts_csv=str(PROJECT_ROOT / "data/processed/damage_bts/failed_bts.csv"),
+    #     graphml_path=str(PROJECT_ROOT / "data/processed/road/roads_flooded.graphml"),
+    #     output_csv=str(PROJECT_ROOT / "data/processed/travel_cost/backup_to_failed_bts.csv"),
+    #     graph_pickle_cache=str(PROJECT_ROOT / "cache/flood_graph.pkl"),
+    #     optimize_for="time"
+    # )
 
     print("Stage 6: Optimization")
     # if method == "MILP":
@@ -137,7 +137,7 @@ def run_pipeline(config_path):
     #     )
     processed_dir = str(PROJECT_ROOT / "data" / "processed")
     outputs_dir = str(PROJECT_ROOT / "outputs" / "milp_runs")
-
+    #
     if method == "MILP":
         print("6) Solving with MILP (Full model - lexicographic)...")
         # milp_main expects: (config_params: dict, processed_data_dir: str, outputs_dir: str)
@@ -171,19 +171,19 @@ def run_pipeline(config_path):
     #
     # else:
     #     raise ValueError(f"Unknown method '{method}'. Must be 'MILP' or 'GA_PSO'.")
-    elif method == "GA_PSO":
-        print("Running GA-PSO Hybrid (Method 2)...")
-
-        runs = int(cfg.get("ga_pso", {}).get("runs", 1))
-
-        for i in range(runs):
-            run_out_dir = str(PROJECT_ROOT / "outputs" / f"ga_pso_run_{i + 1:02d}")
-            print(f"  • Run {i + 1}/{runs} → output: {run_out_dir}")
-
-            # call module mới
-            summary = ga_pso_main(cfg)
-
-            print(f"Completed Run {i + 1}: best_fitness={summary.fitness}")
+    # elif method == "GA_PSO":
+    #     print("Running GA-PSO Hybrid (Method 2)...")
+    #
+    #     runs = int(cfg.get("ga_pso", {}).get("runs", 1))
+    #
+    #     for i in range(runs):
+    #         run_out_dir = str(PROJECT_ROOT / "outputs" / f"ga_pso_run_{i + 1:02d}")
+    #         print(f"  • Run {i + 1}/{runs} → output: {run_out_dir}")
+    #
+    #         # call module mới
+    #         summary = ga_pso_main(cfg)
+    #
+    #         print(f"Completed Run {i + 1}: best_fitness={summary.fitness}")
 
 
     # elif method == "HYBRID":
@@ -203,8 +203,8 @@ def run_pipeline(config_path):
     #     print("Hybrid output saved to hybrid_result_summary.json")
 
 
-    else:
-        raise ValueError(f"Unknown method '{method}'. Must be MILP, GA_PSO, or HYBRID.")
+    # else:
+    #     raise ValueError(f"Unknown method '{method}'. Must be MILP, GA_PSO, or HYBRID.")
 
     #  Visualization
     print("Stage 7: Visualization")
