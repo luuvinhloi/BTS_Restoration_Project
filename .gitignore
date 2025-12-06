@@ -33,7 +33,6 @@ outputs/*
 *.xml
 *.tif.aux.xml
 *.gpickle
-.pkl
 
 # Jupyter notebooks checkpoints
 .ipynb_checkpoints/
