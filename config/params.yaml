@@ -2,7 +2,7 @@
 # CẤU HÌNH CHUNG CHO TOÀN BỘ PIPELINE
 
 # Lựa chọn phương pháp chính
-method: "MILP"                # "MILP" hoặc "GA_PSO" để điều khiển pipeline
+method: "MILP"                # "MILP" or "GA_PSO" or "MILP_GA_PSO"
 
 # Tham số mô phỏng & hệ thống
 damage_rate: 0.85             # Tỉ lệ BTS bị hỏng (0.6–0.9)
