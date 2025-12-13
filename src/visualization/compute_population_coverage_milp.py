@@ -40,7 +40,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 CLEANED_DIR = PROJECT_ROOT / "data" / "cleaned"
 OUT_DIR = PROJECT_ROOT / "outputs"
-SUMMARY_DIR = OUT_DIR / "summary"
+SUMMARY_DIR = OUT_DIR / "summary" / "milp"
 SUMMARY_DIR.mkdir(parents=True, exist_ok=True)
 
 # Input datasets (existing)

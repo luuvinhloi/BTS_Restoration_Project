@@ -24,19 +24,26 @@ from shapely.geometry import Point
 from scipy.spatial import cKDTree
 from tqdm import tqdm
 
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+# ga_pso_solver.py
+# parents[0] = GA_PSO
+# parents[1] = optimization
+# parents[2] = src
+# parents[3] = BTS_Restoration_Project
+
 # -----------------------
 # Configuration / defaults
 # -----------------------
 DEFAULT_CONFIG = {
     "data_paths": {
-        "J_sites": "BTS_Restoration_Project/data/processed/position_I_J/J_sites.csv",
-        "cow_dataset": "BTS_Restoration_Project/data/processed/cow/cow_dataset.csv",
-        "backup_power": "BTS_Restoration_Project/data/processed/backup_power/backup_power.csv",
-        "failed_bts": "BTS_Restoration_Project/data/processed/damage_bts/failed_bts.csv",
-        "cow_to_J": "BTS_Restoration_Project/data/processed/travel_cost/cow_to_J_sites.csv",
-        "backup_to_bts": "BTS_Restoration_Project/data/processed/travel_cost/backup_to_failed_bts.csv",
-        "roads_graphml": "BTS_Restoration_Project/data/processed/road/roads_flooded.graphml",
-        "flood_tif": "BTS_Restoration_Project/data/processed/flood/flood_depth_combined_B_clean.tif"
+        "J_sites": str(PROJECT_ROOT / "data/processed/position_I_J/J_sites_new.csv"),
+        "cow_dataset": str(PROJECT_ROOT / "data/processed/cow/cow_dataset.csv"),
+        "backup_power": str(PROJECT_ROOT / "data/processed/backup_power/backup_power.csv"),
+        "failed_bts": str(PROJECT_ROOT / "data/processed/damage_bts/failed_bts.csv"),
+        "cow_to_J": str(PROJECT_ROOT / "data/processed/travel_cost/cow_to_J_sites_new.csv"),
+        "backup_to_bts": str(PROJECT_ROOT / "data/processed/travel_cost/backup_to_failed_bts_new.csv"),
+        "roads_graphml": str(PROJECT_ROOT / "data/processed/road/roads_flooded.graphml"),
+        "flood_tif": str(PROJECT_ROOT / "data/processed/flood/flood_depth_combined_B_clean.tif"),
     },
     "ga_pso": {
         "runs": 1,
@@ -58,6 +65,18 @@ DEFAULT_CONFIG = {
     },
     "random_seed": 42
 }
+
+# ============================================================
+# CONFIG MERGE (FIX KEYERROR: data_paths)
+# ============================================================
+def merge_with_default(cfg: Dict) -> Dict:
+    merged = deepcopy(DEFAULT_CONFIG)
+    for k, v in cfg.items():
+        if isinstance(v, dict) and k in merged:
+            merged[k].update(v)
+        else:
+            merged[k] = v
+    return merged
 
 # -----------------------
 # Utilities
@@ -184,8 +203,10 @@ class GA_PSOSolver:
         self.cfg = cfg
         random.seed(cfg.get("random_seed", 42))
         np.random.seed(cfg.get("random_seed", 42))
+
         self.dm = DataModel(cfg)
         self.params = cfg["ga_pso"]
+
         self.output_dir = Path(self.params["output_dir"])
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -254,7 +275,12 @@ class GA_PSOSolver:
             cover[b_id] = {}
             for _, jrow in self.dm.J.iterrows():
                 j_id = jrow["site_id"]
-                d_km = haversine_km(float(brow["latitude"]), float(jrow["latitude"]), float(brow["longitude"]), float(jrow["longitude"]))
+                d_km = haversine_km(
+                    float(brow["latitude"]),
+                    float(brow["longitude"]),
+                    float(jrow["latitude"]),
+                    float(jrow["longitude"])
+                )
                 # Using coverage radius of BTS
                 cover[b_id][j_id] = (d_km*1000.0) <= float(brow["coverage_radius_m"])
         return cover
@@ -262,6 +288,29 @@ class GA_PSOSolver:
     # -----------------------
     # Initialization
     # -----------------------
+    def _enforce_power_unique(self, ind: Individual):
+        usage = {}  # power_id -> list of (bts_id, travel_time)
+
+        for bts_id, p_id in ind.power_assign.items():
+            if p_id is None:
+                continue
+
+            t = self.power_travel_map.get((p_id, bts_id), {}).get("total_time_hr", np.inf)
+            usage.setdefault(p_id, []).append((bts_id, t))
+
+        # For each power_id, keep only the assignment with minimum travel_time
+        for p_id, lst in usage.items():
+            if len(lst) <= 1:
+                continue
+
+            # Sort by travel_time -> keep smallest
+            lst_sorted = sorted(lst, key=lambda x: x[1])
+            keep_bts, _ = lst_sorted[0]
+
+            # Remove all others
+            for bts_remove, _ in lst_sorted[1:]:
+                ind.power_assign[bts_remove] = None
+
     def _init_individual_random(self) -> Individual:
         ind = Individual(self.cow_ids, self.bts_to_power)
         # Randomly assign some COWs to feasible J (or None)
@@ -297,6 +346,7 @@ class GA_PSOSolver:
                 ind.power_assign[bts_id] = random.choice(candidates)
             else:
                 ind.power_assign[bts_id] = None
+        self._enforce_power_unique(ind)
         return ind
 
     def _init_population(self, N: int) -> List[Individual]:
@@ -324,85 +374,194 @@ class GA_PSOSolver:
                 used_sites.add(best_j)
         # assign power greedily by nearest power unit using travel map
         for bts_id in self.bts_to_power:
-            # choose power_id with minimal total_time in map
-            candidates = [(pid, self.power_travel_map.get((pid, bts_id), {}).get("total_time_hr", np.inf)) for pid in self.power_ids]
+            candidates = [(pid, self.power_travel_map.get((pid, bts_id), {}).get("total_time_hr", np.inf))
+                          for pid in self.power_ids]
             candidates = [c for c in candidates if c[1] < np.inf]
+
             if candidates:
                 chosen = min(candidates, key=lambda x: x[1])[0]
                 greedy.power_assign[bts_id] = chosen
             else:
                 greedy.power_assign[bts_id] = None
+
+        # enforce unique AFTER all assignments
+        self._enforce_power_unique(greedy)
         pop[0] = greedy
         return pop
 
     # -----------------------
     # Fitness evaluation
     # -----------------------
+    # def evaluate_individual(self, ind: Individual):
+    #     # compute coverage: sum pop of unique covered points by either a restored BTS (via power) or COW deployed
+    #     # For simplicity, we approximate coverage by aggregated J.pop for covered J and unique_pop of BTS for restored BTS
+    #     covered_pop = 0.0
+    #     popJ = {row["site_id"]: float(row.get("pop", 0.0)) for _, row in self.dm.J.iterrows()}
+    #     # J covered by COW
+    #     covered_J = set()
+    #     for cow_id, j_id in ind.cow_assign.items():
+    #         if j_id and (cow_id, j_id) in self.cow_travel_map:
+    #             # ensure feasibility (not flooded)
+    #             if not self.dm.is_J_flooded(j_id):
+    #                 covered_J.add(j_id)
+    #     for j in covered_J:
+    #         covered_pop += popJ.get(j, 0.0)
+    #     # restored BTS: if a BTS has a compatible power assigned and power travel route exists
+    #     for bts_id, power_id in ind.power_assign.items():
+    #         if power_id is None:
+    #             continue
+    #         travel_info = self.power_travel_map.get((power_id, bts_id))
+    #         if travel_info is None:
+    #             continue
+    #         if travel_info.get("total_time_hr", np.inf) == np.inf:
+    #             continue
+    #         # check compatibility: simple rule: if backup type contains 'GENSET' or 'BATTERY' and only one chosen
+    #         prow = self.dm.backups[self.dm.backups["power_id"] == power_id].iloc[0]
+    #         # check capacity: here we enforce simple rule: resource_amount >= 1 (heuristic); for robustness assume acceptable
+    #         # add population coverage by BTS (pop_covered field)
+    #         brow = self.dm.failed_bts[self.dm.failed_bts["site_id"] == bts_id].iloc[0]
+    #         covered_pop += float(brow.get("pop_covered", 0.0))
+    #     # normalize coverage ratio
+    #     total_pop = self.dm.J["pop"].sum() if "pop" in self.dm.J.columns else 1.0
+    #     Rcov = covered_pop / max(total_pop, 1.0)
+    #     # compute max deployment time (max over chosen cow travels and chosen power travels)
+    #     max_time = 0.0
+    #     total_cost = 0.0
+    #     # cows
+    #     for cow_id, j_id in ind.cow_assign.items():
+    #         if j_id is None:
+    #             continue
+    #         tinfo = self.cow_travel_map.get((cow_id, j_id))
+    #         if tinfo:
+    #             max_time = max(max_time, tinfo["travel_time_hr"])
+    #             total_cost += tinfo["travel_cost_vnd"]
+    #     # power
+    #     for bts_id, power_id in ind.power_assign.items():
+    #         if power_id is None:
+    #             continue
+    #         pinfo = self.power_travel_map.get((power_id, bts_id))
+    #         if pinfo:
+    #             max_time = max(max_time, pinfo["total_time_hr"])
+    #             total_cost += pinfo["total_cost_vnd"]
+    #     # Add baseline operating costs for COWs activated
+    #     for cow_id, j_id in ind.cow_assign.items():
+    #         if j_id is not None:
+    #             crow = self.dm.cow[self.dm.cow["cow_id"] == cow_id].iloc[0]
+    #             total_cost += float(crow.get("cost_vnd", crow.get("cost_vnd", 0.0)))
+    #     # budget penalty (soft)
+    #     budget_max = self.params.get("budget_max", 1e19)
+    #     penalty = max(0.0, (total_cost - budget_max) / budget_max)
+    #     # fitness formulation (minimize): f = (1-Rcov) + w_time * (T/Tmax) + w_cost * penalty
+    #     Tmax = max(1.0, max_time)
+    #     w_time = self.params["weights"]["w_time"]
+    #     w_cost = self.params["weights"]["w_cost"]
+    #     f = (1.0 - Rcov) + w_time * (max_time / Tmax) + w_cost * penalty
+    #     # store metrics
+    #     ind.fitness = f
+    #     ind.metrics = {
+    #         "Rcov": Rcov,
+    #         "max_time_hr": max_time,
+    #         "total_cost_vnd": total_cost,
+    #         "covered_pop": covered_pop
+    #     }
+    #     return ind.fitness
+    # -----------------------
+    # Fitness evaluation
+    # -----------------------
     def evaluate_individual(self, ind: Individual):
-        # compute coverage: sum pop of unique covered points by either a restored BTS (via power) or COW deployed
-        # For simplicity, we approximate coverage by aggregated J.pop for covered J and unique_pop of BTS for restored BTS
+        # compute coverage
         covered_pop = 0.0
         popJ = {row["site_id"]: float(row.get("pop", 0.0)) for _, row in self.dm.J.iterrows()}
-        # J covered by COW
+
+        # ------- Coverage by COW -------
         covered_J = set()
         for cow_id, j_id in ind.cow_assign.items():
             if j_id and (cow_id, j_id) in self.cow_travel_map:
-                # ensure feasibility (not flooded)
                 if not self.dm.is_J_flooded(j_id):
                     covered_J.add(j_id)
         for j in covered_J:
             covered_pop += popJ.get(j, 0.0)
-        # restored BTS: if a BTS has a compatible power assigned and power travel route exists
+
+        # ------- Coverage by restored BTS -------
         for bts_id, power_id in ind.power_assign.items():
             if power_id is None:
                 continue
             travel_info = self.power_travel_map.get((power_id, bts_id))
-            if travel_info is None:
+            if travel_info is None or travel_info.get("total_time_hr", float("inf")) == float("inf"):
                 continue
-            if travel_info.get("total_time_hr", np.inf) == np.inf:
-                continue
-            # check compatibility: simple rule: if backup type contains 'GENSET' or 'BATTERY' and only one chosen
-            prow = self.dm.backups[self.dm.backups["power_id"] == power_id].iloc[0]
-            # check capacity: here we enforce simple rule: resource_amount >= 1 (heuristic); for robustness assume acceptable
-            # add population coverage by BTS (pop_covered field)
+
             brow = self.dm.failed_bts[self.dm.failed_bts["site_id"] == bts_id].iloc[0]
             covered_pop += float(brow.get("pop_covered", 0.0))
-        # normalize coverage ratio
+
         total_pop = self.dm.J["pop"].sum() if "pop" in self.dm.J.columns else 1.0
         Rcov = covered_pop / max(total_pop, 1.0)
-        # compute max deployment time (max over chosen cow travels and chosen power travels)
+
+        # ============================================================
+        # NEW TIME & COST FORMULAS (FINAL VERSION)
+        # ============================================================
+        setup_time = float(self.params.get("default_setup_time_h", 0.5))
+
         max_time = 0.0
         total_cost = 0.0
-        # cows
+
+        # COW Deployment Time & Cost
         for cow_id, j_id in ind.cow_assign.items():
             if j_id is None:
                 continue
+
             tinfo = self.cow_travel_map.get((cow_id, j_id))
-            if tinfo:
-                max_time = max(max_time, tinfo["travel_time_hr"])
-                total_cost += tinfo["travel_cost_vnd"]
-        # power
+            if not tinfo:
+                continue
+
+            # NEW TIME
+            time_cow = tinfo["travel_time_hr"] + setup_time
+            max_time = max(max_time, time_cow)
+
+            # NEW COST
+            crow = self.dm.cow[self.dm.cow["cow_id"] == cow_id].iloc[0]
+            cost_cow_fixed = float(crow.get("cost_vnd", 0.0))
+            travel_cost = tinfo["travel_cost_vnd"]
+
+            total_cost += cost_cow_fixed + travel_cost
+
+        # POWER Deployment Time & Cost
         for bts_id, power_id in ind.power_assign.items():
             if power_id is None:
                 continue
+
+            # Travel + deployment info
             pinfo = self.power_travel_map.get((power_id, bts_id))
-            if pinfo:
-                max_time = max(max_time, pinfo["total_time_hr"])
-                total_cost += pinfo["total_cost_vnd"]
-        # Add baseline operating costs for COWs activated
-        for cow_id, j_id in ind.cow_assign.items():
-            if j_id is not None:
-                crow = self.dm.cow[self.dm.cow["cow_id"] == cow_id].iloc[0]
-                total_cost += float(crow.get("cost_vnd", crow.get("cost_vnd", 0.0)))
-        # budget penalty (soft)
-        budget_max = self.params.get("budget_max", 1e19)
+            if not pinfo:
+                continue
+
+            # ---- TIME ----
+            time_power = pinfo["total_time_hr"]
+            max_time = max(max_time, time_power)
+
+            # COST
+            # (1) Deployment + transport cost (from backup_to_failed_bts.csv)
+            cost_deploy = float(pinfo.get("total_cost_vnd", 0.0))
+
+            # (2) Operating cost 24h (from backup_power.csv)
+            prow = self.dm.backups[self.dm.backups["power_id"] == power_id]
+            if not prow.empty:
+                cost_operating = float(prow.iloc[0].get("cost_vnd_24h", 0.0))
+            else:
+                cost_operating = 0.0
+
+            # (3) Total power cost
+            total_cost += cost_deploy + cost_operating
+
+        # Budget penalty
+        budget_max = float(self.params.get("budget_max", 1e9))
         penalty = max(0.0, (total_cost - budget_max) / budget_max)
-        # fitness formulation (minimize): f = (1-Rcov) + w_time * (T/Tmax) + w_cost * penalty
+
         Tmax = max(1.0, max_time)
         w_time = self.params["weights"]["w_time"]
         w_cost = self.params["weights"]["w_cost"]
+
         f = (1.0 - Rcov) + w_time * (max_time / Tmax) + w_cost * penalty
-        # store metrics
+
         ind.fitness = f
         ind.metrics = {
             "Rcov": Rcov,
@@ -459,7 +618,7 @@ class GA_PSOSolver:
         # budget repair: if cost > budget, remove least efficient units
         self.evaluate_individual(ind)
         total_cost = ind.metrics["total_cost_vnd"]
-        budget_max = self.params.get("budget_max", 1e19)
+        budget_max = float(self.params.get("budget_max", 1e9))
         if total_cost > budget_max:
             # compute effectivity eff = delta_coverage / cost for each enabled component
             eff_list = []
@@ -478,8 +637,16 @@ class GA_PSOSolver:
                     continue
                 # delta pop = pop_covered of BTS
                 bpop = float(self.dm.failed_bts[self.dm.failed_bts["site_id"] == bts_id]["pop_covered"].values[0])
-                cost = self.power_travel_map.get((power_id, bts_id), {}).get("total_cost_vnd", 0.0)
+
+                pinfo = self.power_travel_map.get((power_id, bts_id), {})
+                cost_deploy = pinfo.get("total_cost_vnd", 0.0)
+
+                prow = self.dm.backups[self.dm.backups["power_id"] == power_id]
+                cost_operating = float(prow.iloc[0].get("cost_vnd_24h", 0.0)) if not prow.empty else 0.0
+
+                cost = cost_deploy + cost_operating
                 eff = (bpop / max(cost, 1.0))
+
                 eff_list.append(("power", bts_id, eff, cost))
             # sort ascending by eff (least effective first) and drop until cost<=budget
             eff_list.sort(key=lambda x: x[2])
@@ -491,6 +658,7 @@ class GA_PSOSolver:
                 else:
                     ind.power_assign[idv] = None
                 total_cost -= cost
+        self._enforce_power_unique(ind)
         return ind
 
     # -----------------------
@@ -507,6 +675,7 @@ class GA_PSOSolver:
         for p in child.power_assign.keys():
             if random.random() < 0.5:
                 child.power_assign[p] = b.power_assign.get(p)
+        self._enforce_power_unique(child)
         return child
 
     def mutate(self, ind: Individual, mutation_rate: float):
@@ -522,6 +691,7 @@ class GA_PSOSolver:
         for bts_id in ind.power_assign.keys():
             if random.random() < mutation_rate:
                 ind.power_assign[bts_id] = random.choice(self.power_ids + [None])
+        self._enforce_power_unique(ind)
         return ind
 
     # -----------------------
@@ -540,6 +710,7 @@ class GA_PSOSolver:
                 child.power_assign[bts_id] = pbest.power_assign.get(bts_id)
             if random.random() < w_g:
                 child.power_assign[bts_id] = gbest.power_assign.get(bts_id)
+        self._enforce_power_unique(child)
         return child
 
     # -----------------------
@@ -628,24 +799,29 @@ class GA_PSOSolver:
                 rec.update(self.cow_travel_map[(cow_id, site_id)])
             cow_rows.append(rec)
         df_cow_out = pd.DataFrame(cow_rows)
-        df_cow_out.to_csv(self.output_dir / "solution_cow_assignments.csv", index=False)
+        df_cow_out.to_csv(self.output_dir / "solution_cow_assignments_new.csv", index=False)
 
         # export power assignments
         power_rows = []
         for bts_id, power_id in sol.power_assign.items():
             rec = {"bts_id": bts_id, "power_id": power_id if power_id is not None else ""}
             if power_id and (power_id, bts_id) in self.power_travel_map:
-                rec.update(self.power_travel_map[(power_id, bts_id)])
+                prow = self.dm.backups[self.dm.backups["power_id"] == power_id]
+                rec["operating_cost_vnd_24h"] = float(prow.iloc[0].get("cost_vnd_24h", 0.0)) if not prow.empty else 0.0
+                # rec["total_cost_all_vnd"] = rec["total_cost_vnd"] + rec["operating_cost_vnd_24h"]
+                pinfo = self.power_travel_map[(power_id, bts_id)]
+                rec["total_cost_vnd"] = float(pinfo.get("total_cost_vnd", 0.0))
+                rec["total_cost_all_vnd"] = rec["total_cost_vnd"] + rec["operating_cost_vnd_24h"]
             power_rows.append(rec)
         df_power_out = pd.DataFrame(power_rows)
-        df_power_out.to_csv(self.output_dir / "solution_power_assignments.csv", index=False)
+        df_power_out.to_csv(self.output_dir / "solution_power_assignments_new.csv", index=False)
 
         # summary
         summary = {
             "fitness": sol.fitness,
             **sol.metrics
         }
-        with open(self.output_dir / "solution_summary.json", "w") as f:
+        with open(self.output_dir / "solution_summary_new.json", "w") as f:
             json.dump(summary, f, indent=2)
 
         logging.info("Solution exported to %s", str(self.output_dir))
@@ -654,10 +830,15 @@ class GA_PSOSolver:
 # CLI
 # -----------------------
 def run_from_config(config: Dict = None):
+    logging.basicConfig(level=logging.INFO,
+                        format="%(asctime)s %(levelname)s: %(message)s")
+
     if config is None:
-        config = DEFAULT_CONFIG
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s")
-    solver = GA_PSOSolver(config)
+        cfg = DEFAULT_CONFIG
+    else:
+        cfg = merge_with_default(config)
+
+    solver = GA_PSOSolver(cfg)
     best = solver.run()
     return best
 

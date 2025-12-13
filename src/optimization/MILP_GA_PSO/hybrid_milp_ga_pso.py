@@ -2,27 +2,10 @@
 Hybrid MILP + GA-PSO solver module for BTS restoration
 Save path (user): BTS_Restoration_Project/src/optimization/GA_PSO/hybrid_milp_ga_pso.py
 
-Main capabilities implemented:
-- load datasets (CSV, graphml, tif)
-- preprocess: build cover matrices, read travel matrices
-- MILP presolve (PuLP) to prune infeasible COW/sites and generate seeds
-- GA-PSO hybrid search (encoding, PSO-like update, GA crossover/mutation, repair)
-- MILP local refinement (PuLP) to refine top-K candidates
-- outputs: selected COW deployments, assigned backup power, covered population, total time/cost
-
-Notes:
-- Module assumes datasets exist under project data/processed paths as described by user.
-- Uses PuLP as MILP interface. If Gurobi is available, PuLP can call it by name.
-- Uses networkx to read roads_flooded.graphml and checks edge attributes is_passable / flood_class
-- Uses rasterio to check flood depth at candidate J sites (requires rasterio)
-
-This is a single-file implementation intended to be a working starting point. It is engineered for clarity and completeness.
-
-References: Implementation follows the design and pseudocode in the project report (Hybrid_MILP_GA_PSO). See report for model details. Citation: fileciteturn1file0
+This file is a cleaned, single-copy version of your hybrid solver.
 """
 
 import os
-import csv
 import json
 import math
 import random
@@ -34,6 +17,7 @@ import pandas as pd
 import numpy as np
 import networkx as nx
 import pulp
+from pathlib import Path
 
 try:
     import rasterio
@@ -42,16 +26,26 @@ except Exception:
     rasterio = None
 
 # --------------------------- Configuration ---------------------------
-DATA_ROOT = os.path.join('BTS_Restoration_Project', 'data', 'processed')
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+# hybrid_milp_ga_pso.py
+# parents[0] = MILP_GA_PSO
+# parents[1] = optimization
+# parents[2] = src
+# parents[3] = BTS_Restoration_Project
+
+DATA_ROOT = PROJECT_ROOT / "data" / "processed"
+
 PATHS = {
-    'J_sites': os.path.join(DATA_ROOT, 'position_I_J', 'J_sites.csv'),
-    'cow_dataset': os.path.join(DATA_ROOT, 'cow', 'cow_dataset.csv'),
-    'backup_power': os.path.join(DATA_ROOT, 'backup_power', 'backup_power.csv'),
-    'failed_bts': os.path.join(DATA_ROOT, 'damage_bts', 'failed_bts.csv'),
-    'flood_tif': os.path.join(DATA_ROOT, 'flood', 'flood_depth_combined_B_clean.tif'),
-    'roads_graph': os.path.join(DATA_ROOT, 'road', 'roads_flooded.graphml'),
-    'cow_travel': os.path.join(DATA_ROOT, 'travel_cost', 'cow_to_J_sites.csv'),
-    'power_travel': os.path.join(DATA_ROOT, 'travel_cost', 'backup_to_failed_bts.csv')
+    'J_sites': DATA_ROOT / "position_I_J" / "J_sites_new.csv",
+    'cow_dataset': DATA_ROOT / "cow" / "cow_dataset.csv",
+    'backup_power': DATA_ROOT / "backup_power" / "backup_power.csv",
+    'failed_bts': DATA_ROOT / "damage_bts" / "failed_bts.csv",
+    'flood_tif': DATA_ROOT / "flood" / "flood_depth_combined_B_clean.tif",
+    'roads_graph': DATA_ROOT / "road" / "roads_flooded.graphml",
+    'cow_travel': DATA_ROOT / "travel_cost" / "cow_to_J_sites_new.csv",
+    'power_travel': DATA_ROOT / "travel_cost" / "backup_to_failed_bts_new.csv"
 }
 
 BUDGET_MAX = 1e9  # VNĐ
@@ -65,30 +59,21 @@ POWER = namedtuple('POWER', 'base_id power_id lat lon base_name type model runti
 BTS = namedtuple('BTS', 'site_id latitude longitude utm_x utm_y pop_covered pop_unique_covered overlap_ratio_network total_unique_pop_network elevation_m slope_deg neighbour_weight dist_to_school_m dist_to_hospital_m dist_to_road_m dist_to_residential_m dist_to_industrial_m site_accessibility_score antenna_height_m region_type bts_type coverage_radius_m power_W flooded status')
 JSITE = namedtuple('JSITE', 'site_id i_ref latitude longitude pop priority_category priority_weight slope dist_to_road_m in_water')
 
-# --------------------------- Utility functions ---------------------------
+# --------------------------- Utility ---------------------------
 
 def haversine_km(lat1, lon1, lat2, lon2):
-    # returns distance in km
     R = 6371.0
     phi1 = math.radians(lat1)
     phi2 = math.radians(lat2)
     dphi = math.radians(lat2 - lat1)
     dlambda = math.radians(lon2 - lon1)
     a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlambda/2)**2
-    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+    return 2 * R * math.asin(math.sqrt(a))
 
-# --------------------------- Data loading ---------------------------
-
-def load_csv_to_namedtuples(path, record_type):
-    df = pd.read_csv(path)
-    records = []
-    for _, r in df.iterrows():
-        records.append(record_type(*[r[c] for c in df.columns]))
-    return df, records
-
+# --------------------------- Data Loading ---------------------------
 
 def load_all():
-    print('Loading datasets...')
+    print("Loading datasets...")
     J_df = pd.read_csv(PATHS['J_sites'])
     cow_df = pd.read_csv(PATHS['cow_dataset'])
     power_df = pd.read_csv(PATHS['backup_power'])
@@ -96,21 +81,21 @@ def load_all():
     cow_travel_df = pd.read_csv(PATHS['cow_travel'])
     power_travel_df = pd.read_csv(PATHS['power_travel'])
 
-    # Read roads graph
     G = None
     if os.path.exists(PATHS['roads_graph']):
-        G = nx.read_graphml(PATHS['roads_graph'])
-        print('Loaded roads graph with', G.number_of_nodes(), 'nodes and', G.number_of_edges(), 'edges')
-    else:
-        print('roads graph not found at', PATHS['roads_graph'])
+        try:
+            G = nx.read_graphml(PATHS['roads_graph'])
+            print('Loaded roads graph', G.number_of_nodes(), 'nodes')
+        except Exception as e:
+            print('Could not load roads graph:', e)
 
-    # flood raster
     flood_src = None
     if rasterio and os.path.exists(PATHS['flood_tif']):
-        flood_src = rasterio.open(PATHS['flood_tif'])
-        print('Loaded flood raster')
-    else:
-        print('Warning: rasterio/flood tif not available')
+        try:
+            flood_src = rasterio.open(PATHS['flood_tif'])
+            print('Loaded flood raster')
+        except Exception as e:
+            print('Could not open flood raster:', e)
 
     return {
         'J_df': J_df,
@@ -123,48 +108,34 @@ def load_all():
         'flood_src': flood_src
     }
 
-# --------------------------- Preprocessing ---------------------------
+# --------------------------- Coverage matrices ---------------------------
 
-def site_in_deep_flood(flood_src, lat, lon, depth_threshold_m=0.5):
-    if flood_src is None:
-        return False
-    try:
-        row, col = flood_src.index(lon, lat)
-        val = float(flood_src.read(1)[row, col])
-        return val > depth_threshold_m
-    except Exception:
-        return False
-
-
-def build_cover_matrices(bts_df: pd.DataFrame, J_df: pd.DataFrame, cow_df: pd.DataFrame):
-    # For this simplified module, we assume COW covers J site if within its radius (based on base location)
+def build_cover_matrices(bts_df, J_df, cow_df):
     print('Building coverage matrices...')
     cover_cow = defaultdict(dict)
     cover_bts = defaultdict(dict)
 
-    # Map COW base location
-    cow_bases = {}
-    for _, r in cow_df.iterrows():
-        cow_bases[r['cow_id']] = (r['lat'], r['lon'], r['coverage_radius_m'])
+    # cows
+    if {'cow_id', 'lat', 'lon', 'coverage_radius_m'}.issubset(cow_df.columns):
+        for _, r in cow_df.iterrows():
+            c_id = r['cow_id']
+            clat, clon, Rm = r['lat'], r['lon'], r['coverage_radius_m']
+            for _, j in J_df.iterrows():
+                d = haversine_km(clat, clon, j['latitude'], j['longitude']) * 1000
+                cover_cow[c_id][j['site_id']] = 1 if d <= Rm else 0
 
-    for cow_id, (clat, clon, r) in cow_bases.items():
-        for _, j in J_df.iterrows():
-            d = haversine_km(clat, clon, j['latitude'], j['longitude']) * 1000.0
-            cover_cow[cow_id][j['site_id']] = 1 if d <= r else 0
-
-    for _, b in bts_df.iterrows():
-        for _, j in J_df.iterrows():
-            d = haversine_km(b['latitude'], b['longitude'], j['latitude'], j['longitude']) * 1000.0
-            cover_bts[b['site_id']][j['site_id']] = 1 if d <= b['coverage_radius_m'] else 0
+    # bts
+    if {'latitude', 'longitude', 'coverage_radius_m', 'site_id'}.issubset(bts_df.columns):
+        for _, b in bts_df.iterrows():
+            for _, j in J_df.iterrows():
+                d = haversine_km(b['latitude'], b['longitude'], j['latitude'], j['longitude']) * 1000
+                cover_bts[b['site_id']][j['site_id']] = 1 if d <= b['coverage_radius_m'] else 0
 
     return cover_cow, cover_bts
 
-# --------------------------- MILP Presolve ---------------------------
+# --------------------------- MILP presolve ---------------------------
 
-def milp_presolve(data, time_limit_sec=60):
-    """Run a light-weight MILP to prune infeasible COWs/sites and generate seeds.
-    Returns: reduced_J_ids, feasible_cow_ids, feasible_power_ids, seed_solutions(list)
-    """
+def milp_presolve(data):
     J_df = data['J_df']
     cow_df = data['cow_df']
     power_df = data['power_df']
@@ -172,316 +143,405 @@ def milp_presolve(data, time_limit_sec=60):
     cow_travel = data['cow_travel_df']
     power_travel = data['power_travel_df']
 
-    # Simple feasibility checks
     feasible_cow_ids = set()
-    for _, cow in cow_df.iterrows():
-        # if a cow can cover at least one J site and has reasonable cost
-        poss = cow_travel[cow_travel['cow_id'] == cow['cow_id']]
-        if poss.shape[0] == 0:
-            continue
-        # check if any distance is finite and site not in deep flood later (we don't check flood here)
-        feasible_cow_ids.add(cow['cow_id'])
+    if 'cow_id' in cow_df.columns:
+        for _, cow in cow_df.iterrows():
+            if not cow_travel[cow_travel['cow_id'] == cow['cow_id']].empty:
+                feasible_cow_ids.add(cow['cow_id'])
 
-    # feasible power: if resource_amount > 0
-    feasible_power_ids = set(power_df[power_df['resource_amount'] > 0]['power_id'].tolist())
+    feasible_power_ids = set()
+    if {'resource_amount', 'power_id'}.issubset(power_df.columns):
+        feasible_power_ids = set(power_df[power_df['resource_amount'] > 0]['power_id'])
 
-    # Reduce J_sites: remove those in deep flood >0.5 or in_water True
-    reduced_J = []
-    for _, j in J_df.iterrows():
-        if j.get('in_water', False) or (('in_water' in j) and bool(j['in_water'])):
-            continue
-        reduced_J.append(j['site_id'])
+    reduced_J = [j['site_id'] for _, j in J_df.iterrows() if not bool(j.get('in_water', False))]
 
-    # Create a couple of seed solutions by greedy coverage-first heuristics
     seeds = []
-    # seed 1: assign nearest COW to each high-pop J, limited by endurance
-    sorted_J = J_df.sort_values('pop', ascending=False).head(200)
-    for seed_mode in [0, 1]:
-        assignment = {'cows': {}, 'powers': {}}
-        budget = BUDGET_MAX
-        # greedy assign cows to highest pop J
+    outage_bts = bts_df[bts_df.get('status', '') == 'power_outage'] if 'status' in bts_df.columns else pd.DataFrame()
+
+    sorted_J = J_df.sort_values('pop', ascending=False).head(200) if 'pop' in J_df.columns else J_df
+
+    for _ in [0, 1]:
+        sol = {'cows': {}, 'powers': {}}
+        used_powers = set()
+
         for _, j in sorted_J.iterrows():
             j_id = j['site_id']
-            # find candidate cows that can reach j from cow_travel
-            cand = cow_travel[cow_travel['site_id'] == j_id]
-            if cand.shape[0] == 0:
+            cand = cow_travel[cow_travel['site_id'] == j_id] if 'site_id' in cow_travel.columns else pd.DataFrame()
+            if cand.empty:
                 continue
-            cand = cand.sort_values('travel_cost_vnd')
-            for _, c in cand.iterrows():
-                if c['cow_id'] in feasible_cow_ids and c['cow_id'] not in assignment['cows']:
-                    assignment['cows'][c['cow_id']] = j_id
-                    budget -= c['travel_cost_vnd']
-                    break
-        # greedy assign powers to power_outage BTS
-        outage_bts = bts_df[bts_df['status'] == 'power_outage']
-        for _, b in outage_bts.iterrows():
-            b_id = b['site_id']
-            cand = power_travel[power_travel['bts_id'] == b_id]
-            if cand.shape[0] == 0:
-                continue
-            cand = cand.sort_values('total_cost_vnd')
-            for _, p in cand.iterrows():
-                if p['power_id'] in feasible_power_ids and p['power_id'] not in assignment['powers']:
-                    assignment['powers'][b_id] = p['power_id']
-                    budget -= p['total_cost_vnd']
-                    break
-        seeds.append(assignment)
+            c = cand.sort_values('travel_cost_vnd').iloc[0] if 'travel_cost_vnd' in cand.columns else cand.iloc[0]
+            if c['cow_id'] in feasible_cow_ids:
+                sol['cows'][c['cow_id']] = j_id
 
-    print(f'MILP presolve produced {len(seeds)} seeds, {len(reduced_J)} reduced sites')
+        for _, row in outage_bts.iterrows():
+            b_id = row['site_id']
+            cand = power_travel[power_travel['bts_id'] == b_id] if 'bts_id' in power_travel.columns else pd.DataFrame()
+            if cand.empty:
+                continue
+            for _, p in cand.sort_values('total_cost_vnd').iterrows() if 'total_cost_vnd' in cand.columns else cand.iterrows():
+                if p['power_id'] in feasible_power_ids and p['power_id'] not in used_powers:
+                    sol['powers'][b_id] = p['power_id']
+                    used_powers.add(p['power_id'])
+                    break
+
+        seeds.append(sol)
+
+    print(f"MILP presolve: {len(seeds)} seed solutions generated.")
     return reduced_J, feasible_cow_ids, feasible_power_ids, seeds
 
 # --------------------------- GA-PSO Implementation ---------------------------
 
 class HybridGAPSO:
     def __init__(self, data, cover_cow, cover_bts, reduced_J, feasible_cows, feasible_powers, seeds,
-                 pop_size=100, max_iter=300, elite_n=5):
+                 pop_size=80, max_iter=150, elite_n=5):
+
         self.data = data
         self.cover_cow = cover_cow
         self.cover_bts = cover_bts
         self.reduced_J = set(reduced_J)
+
         self.feasible_cows = list(feasible_cows)
         self.feasible_powers = list(feasible_powers)
-        self.seeds = seeds
+        self.seeds = seeds or []
+
         self.pop_size = pop_size
         self.max_iter = max_iter
         self.elite_n = elite_n
 
-        # load travel matrices as dicts for quick lookup
-        self.cow_travel = {(r['cow_id'], r['site_id']): (r['distance_km'], r['travel_time_hr'], r['travel_cost_vnd'])
-                           for _, r in data['cow_travel_df'].iterrows()}
-        self.power_travel = {(r['power_id'], r['bts_id']): (r['distance_km'], r['total_time_hr'], r['total_cost_vnd'])
-                             for _, r in data['power_travel_df'].iterrows()}
+        # Preload travel costs for speed (use .get to avoid KeyError)
+        self.cow_travel = {
+            (row.get('cow_id'), row.get('site_id')): (
+                row.get('distance_km', np.nan),
+                row.get('travel_time_hr', np.nan),
+                row.get('travel_cost_vnd', np.nan),
+            )
+            for _, row in data['cow_travel_df'].iterrows()
+        }
 
-        # population holds genomes: {'cows': {cow_id: site_id or None}, 'powers': {bts_id: power_id or None}}
+        self.power_travel = {
+            (row.get('power_id'), row.get('bts_id')): (
+                row.get('distance_km', np.nan),
+                row.get('total_time_hr', np.nan),
+                row.get('total_cost_vnd', np.nan),
+            )
+            for _, row in data['power_travel_df'].iterrows()
+        }
+
         self.population = []
         self.fitnesses = []
         self.pbest = []
         self.pbest_f = []
         self.gbest = None
-        self.gbest_f = -1e9
+        self.gbest_f = -1e18
 
+    # ----------------------------------------------------------------------
+    def _enforce_power_unique(self, sol):
+        usage = defaultdict(list)
+        for bts_id, p in list(sol.get('powers', {}).items()):
+            if p is None:
+                continue
+            key = (p, bts_id)
+            tt = self.power_travel.get(key, (np.inf, np.inf, np.inf))[1]
+            cost = self.power_travel.get(key, (np.inf, np.inf, np.inf))[2]
+            usage[p].append((bts_id, tt, cost))
+
+        for pid, lst in usage.items():
+            if len(lst) <= 1:
+                continue
+            lst = sorted(lst, key=lambda x: (x[1], x[2]))
+            keep = lst[0][0]
+            for bts_remove, _, _ in lst[1:]:
+                sol['powers'].pop(bts_remove, None)
+
+    # ----------------------------------------------------------------------
     def initialize(self):
         print('Initializing GA-PSO population...')
-        # half seeds, half random
-        seed_count = max(1, int(self.pop_size * 0.5))
+
+        seed_count = max(0, int(self.pop_size * 0.5))
+        seed_count = min(seed_count, len(self.seeds)) if self.seeds else 0
+
         for i in range(seed_count):
-            sol = self.seeds[i % len(self.seeds)].copy()
-            # ensure full keys
-            sol['cows'] = dict(sol.get('cows', {}))
-            sol['powers'] = dict(sol.get('powers', {}))
-            self.population.append(sol)
-        while len(self.population) < self.pop_size:
-            sol = {'cows': {}, 'powers': {}}
-            # random feasible cows assign to random reduced J or none
-            for cow in random.sample(self.feasible_cows, k=min(len(self.feasible_cows), 10)):
-                if random.random() < 0.3:
-                    site = random.choice(list(self.reduced_J))
-                    sol['cows'][cow] = site
-            # random power assignments to a subset of outage BTS
-            outage_bts = [r['site_id'] for _, r in self.data['bts_df'].iterrows() if r['status'] == 'power_outage']
-            for b in random.sample(outage_bts, k=min(len(outage_bts), 10)):
-                if random.random() < 0.5 and len(self.feasible_powers) > 0:
-                    sol['powers'][b] = random.choice(self.feasible_powers)
+            s = self.seeds[i % len(self.seeds)]
+            sol = {'cows': dict(s.get('cows', {})), 'powers': dict(s.get('powers', {}))}
+            self._enforce_power_unique(sol)
             self.population.append(sol)
 
-        # Evaluate initial population
+        outage_bts = self.data['bts_df'][self.data['bts_df'].get('status', '') == 'power_outage']['site_id'].tolist() if 'status' in self.data['bts_df'].columns else []
+
+        while len(self.population) < self.pop_size:
+            sol = {'cows': {}, 'powers': {}}
+
+            # COW deployment
+            if self.feasible_cows:
+                for cow in random.sample(self.feasible_cows, k=min(len(self.feasible_cows), 10)):
+                    if random.random() < 0.3:
+                        sol['cows'][cow] = random.choice(list(self.reduced_J))
+
+            # Power assignment
+            used = set()
+            if outage_bts:
+                for b in random.sample(outage_bts, k=min(10, len(outage_bts))):
+                    if random.random() < 0.5 and self.feasible_powers:
+                        p = random.choice(self.feasible_powers)
+                        if p not in used:
+                            sol['powers'][b] = p
+                            used.add(p)
+
+            self._enforce_power_unique(sol)
+            self.population.append(sol)
+
+        # evaluate
+        if not self.population:
+            self.population = [{'cows': {}, 'powers': {}}]
         self.fitnesses = [self.evaluate(sol) for sol in self.population]
-        self.pbest = list(self.population)
+        self.pbest = [dict(sol) for sol in self.population]
         self.pbest_f = list(self.fitnesses)
         idx = int(np.argmax(self.fitnesses))
         self.gbest = self.population[idx]
         self.gbest_f = self.fitnesses[idx]
-        print('Initial gbest fitness:', self.gbest_f)
+        print('Initial best fitness =', self.gbest_f)
 
+    # ----------------------------------------------------------------------
     def evaluate(self, sol):
-        # compute coverage F1 (population covered by cows + restored BTS with power)
-        # we use coverage over J_sites pop available in data
         J_df = self.data['J_df']
         bts_df = self.data['bts_df']
 
-        covered_pop = 0.0
-        # covered by cows
-        for cow_id, site_id in sol['cows'].items():
-            if site_id is None:
+        covered = 0.0
+        for cow, site in sol.get('cows', {}).items():
+            if site is None:
                 continue
-            match = J_df[J_df['site_id'] == site_id]
-            if match.shape[0] > 0:
-                covered_pop += float(match.iloc[0]['pop'])
-        # covered by recovered BTS
-        for bts_id, power_id in sol['powers'].items():
-            if power_id is None:
-                continue
-            match = bts_df[bts_df['site_id'] == bts_id]
-            if match.shape[0] > 0:
-                covered_pop += float(match.iloc[0]['pop_covered'])
+            row = J_df[J_df['site_id'] == site]
+            if not row.empty and 'pop' in row.columns:
+                covered += float(row.iloc[0]['pop'])
 
-        # Normalize
-        total_pop = float(J_df['pop'].sum() + bts_df['pop_covered'].sum())
-        Rcov = covered_pop / (total_pop + 1e-9)
+        for bts_id, p in sol.get('powers', {}).items():
+            row = bts_df[bts_df['site_id'] == bts_id]
+            if not row.empty and 'pop_covered' in row.columns:
+                covered += float(row.iloc[0]['pop_covered'])
 
-        # time: maximum travel_time among assignments
-        max_time = 0.0
-        for (cow_id, site_id), vals in self.cow_travel.items():
-            # if assignment matches
-            if cow_id in sol['cows'] and sol['cows'][cow_id] == site_id:
-                max_time = max(max_time, vals[1])
-        for (power_id, bts_id), vals in self.power_travel.items():
-            if bts_id in sol['powers'] and sol['powers'][bts_id] == power_id:
-                max_time = max(max_time, vals[1])
-        Tnorm = max_time / (24.0 + 1e-9)  # assume Tmax 24h
+        total_pop = float((J_df['pop'].sum() if 'pop' in J_df.columns else 0.0) + (bts_df['pop_covered'].sum() if 'pop_covered' in bts_df.columns else 0.0))
+        Rcov = covered / (total_pop + 1e-9)
 
-        # cost
+        max_t = 0.0
         total_cost = 0.0
-        for (cow_id, site_id), vals in self.cow_travel.items():
-            if cow_id in sol['cows'] and sol['cows'][cow_id] == site_id:
-                total_cost += vals[2]
-        for (power_id, bts_id), vals in self.power_travel.items():
-            if bts_id in sol['powers'] and sol['powers'][bts_id] == power_id:
-                total_cost += vals[2]
-        Cost_pen = max(0.0, (total_cost - BUDGET_MAX) / (BUDGET_MAX + 1e-9))
 
+        # cows cost/time
+        for cow, site in sol.get('cows', {}).items():
+            key = (cow, site)
+            info = self.cow_travel.get(key)
+            if info:
+                tt = 0.0 if pd.isna(info[1]) else float(info[1])
+                cost_c = 0.0 if pd.isna(info[2]) else float(info[2])
+                max_t = max(max_t, tt + 0.5)  # include setup
+                total_cost += cost_c
+            # fixed cost
+            try:
+                cow_fixed = float(self.data['cow_df'][self.data['cow_df']['cow_id'] == cow]['cost_vnd'].iloc[0])
+                total_cost += cow_fixed
+            except Exception:
+                pass
+
+        # powers cost/time
+        for bts_id, p in sol.get('powers', {}).items():
+            key = (p, bts_id)
+            info = self.power_travel.get(key)
+            if not info:
+                continue
+
+            # TIME
+            tt = 0.0 if pd.isna(info[1]) else float(info[1])
+            max_t = max(max_t, tt)
+
+            # COST
+            # (1) deployment + transport cost
+            cost_deploy = 0.0 if pd.isna(info[2]) else float(info[2])
+
+            # (2) operating cost 24h
+            prow = self.data['power_df'][self.data['power_df']['power_id'] == p]
+            if not prow.empty:
+                cost_operating = float(prow.iloc[0].get('cost_vnd_24h', 0.0))
+            else:
+                cost_operating = 0.0
+
+            total_cost += cost_deploy + cost_operating
+
+        Tnorm = max_t / 24.0
+        Cost_pen = max(0.0, (total_cost - BUDGET_MAX) / (BUDGET_MAX + 1e-9))
         fitness = ALPHA * Rcov - BETA * Tnorm - GAMMA * Cost_pen
         return fitness
 
+    # ----------------------------------------------------------------------
     def repair(self, sol):
-        # enforce: each J site max 1 cow, each cow at most 1 site (we already assign that way), each BTS gets at most one power
-        # ensure cows assigned to reduced_J and not to flooded J (we skip flood here)
-        # budget repair: remove least efficient assignments if cost>budget
-        # compute costs and eff
         cost_items = []
         total_cost = 0.0
-        for cow_id, site_id in list(sol['cows'].items()):
-            key = (cow_id, site_id)
-            if key in self.cow_travel:
-                cost = self.cow_travel[key][2]
-                total_cost += cost
-                # approximate coverage: pop at site
-                pop = float(self.data['J_df'][self.data['J_df']['site_id'] == site_id]['pop'].sum())
-                eff = pop / (cost + 1e-9)
-                cost_items.append(('cow', cow_id, site_id, cost, eff))
-            else:
-                # invalid travel record
-                sol['cows'].pop(cow_id, None)
-        for bts_id, power_id in list(sol['powers'].items()):
-            key = (power_id, bts_id)
-            if key in self.power_travel:
-                cost = self.power_travel[key][2]
-                total_cost += cost
-                pop = float(self.data['bts_df'][self.data['bts_df']['site_id'] == bts_id]['pop_covered'].sum())
-                eff = pop / (cost + 1e-9)
-                cost_items.append(('power', bts_id, power_id, cost, eff))
-            else:
-                sol['powers'].pop(bts_id, None)
 
-        # If over budget, remove lowest eff items until under budget
+        for cow_id, site_id in list(sol.get('cows', {}).items()):
+            if site_id not in self.reduced_J:
+                sol['cows'].pop(cow_id, None)
+                continue
+            key = (cow_id, site_id)
+            info = self.cow_travel.get(key)
+            if not info:
+                sol['cows'].pop(cow_id, None)
+                continue
+            travel_cost = 0.0 if pd.isna(info[2]) else float(info[2])
+            try:
+                cow_fixed = float(self.data['cow_df'][self.data['cow_df']['cow_id'] == cow_id]['cost_vnd'].iloc[0])
+            except Exception:
+                cow_fixed = 0.0
+            cost = cow_fixed + travel_cost
+            pop = float(self.data['J_df'][self.data['J_df']['site_id'] == site_id]['pop'].sum()) if 'pop' in self.data['J_df'].columns else 0.0
+            eff = pop / (cost + 1e-9)
+            cost_items.append(('cow', cow_id, site_id, cost, eff))
+            total_cost += cost
+
+        for bts_id, p_id in list(sol.get('powers', {}).items()):
+            key = (p_id, bts_id)
+            info = self.power_travel.get(key)
+            if not info:
+                sol['powers'].pop(bts_id, None)
+                continue
+            pop = float(
+                self.data['bts_df'][self.data['bts_df']['site_id'] == bts_id]['pop_covered'].sum()) if 'pop_covered' in \
+                                                                                                       self.data[
+                                                                                                           'bts_df'].columns else 0.0
+            # deployment cost
+            cost_deploy = 0.0 if pd.isna(info[2]) else float(info[2])
+
+            # operating cost
+            prow = self.data['power_df'][self.data['power_df']['power_id'] == p_id]
+            if not prow.empty:
+                cost_operating = float(prow.iloc[0].get('cost_vnd_24h', 0.0))
+            else:
+                cost_operating = 0.0
+
+            cost = cost_deploy + cost_operating
+            eff = pop / (cost + 1e-9)
+
+            cost_items.append(('power', bts_id, p_id, cost, eff))
+            total_cost += cost
+
         if total_cost > BUDGET_MAX:
-            cost_items.sort(key=lambda x: x[4])  # ascending eff
+            cost_items.sort(key=lambda x: x[4])
             for item in cost_items:
                 if total_cost <= BUDGET_MAX:
                     break
-                typ = item[0]
-                if typ == 'cow':
-                    _, cow_id, site_id, cost, _ = item
-                    if cow_id in sol['cows']:
-                        sol['cows'].pop(cow_id, None)
-                        total_cost -= cost
-                else:
-                    _, bts_id, power_id, cost, _ = item
-                    if bts_id in sol['powers']:
-                        sol['powers'].pop(bts_id, None)
-                        total_cost -= cost
+                kind, id1, id2, c, _ = item
+                if kind == 'cow' and id1 in sol.get('cows', {}):
+                    sol['cows'].pop(id1, None)
+                    total_cost -= c
+                elif kind == 'power' and id1 in sol.get('powers', {}):
+                    sol['powers'].pop(id1, None)
+                    total_cost -= c
+
+        self._enforce_power_unique(sol)
         return sol
 
+    # ----------------------------------------------------------------------
     def crossover(self, a, b):
-        # uniform crossover for both cows and powers
         child = {'cows': {}, 'powers': {}}
-        for cow in set(list(a['cows'].keys()) + list(b['cows'].keys())):
+        for cow in set(a.get('cows', {}).keys()) | set(b.get('cows', {}).keys()):
             if random.random() < 0.5:
-                if cow in a['cows']:
+                if cow in a.get('cows', {}):
                     child['cows'][cow] = a['cows'][cow]
             else:
-                if cow in b['cows']:
+                if cow in b.get('cows', {}):
                     child['cows'][cow] = b['cows'][cow]
-        for bts in set(list(a['powers'].keys()) + list(b['powers'].keys())):
+
+        for bt in set(a.get('powers', {}).keys()) | set(b.get('powers', {}).keys()):
             if random.random() < 0.5:
-                if bts in a['powers']:
-                    child['powers'][bts] = a['powers'][bts]
+                if bt in a.get('powers', {}):
+                    child['powers'][bt] = a['powers'][bt]
             else:
-                if bts in b['powers']:
-                    child['powers'][bts] = b['powers'][bts]
+                if bt in b.get('powers', {}):
+                    child['powers'][bt] = b['powers'][bt]
+
+        self._enforce_power_unique(child)
         return child
 
+    # ----------------------------------------------------------------------
     def mutate(self, sol, p_mut=0.05):
-        # change assignment of a random cow or power
-        if random.random() < p_mut and len(sol['cows']) > 0:
-            cow = random.choice(list(sol['cows'].keys()))
-            if random.random() < 0.5:
-                sol['cows'].pop(cow, None)
+        if random.random() < p_mut and self.feasible_cows:
+            if random.random() < 0.5 and sol.get('cows'):
+                sol['cows'].pop(random.choice(list(sol['cows'].keys())), None)
             else:
-                sol['cows'][cow] = random.choice(list(self.reduced_J))
-        if random.random() < p_mut and len(sol['powers']) > 0:
-            bts = random.choice(list(sol['powers'].keys()))
+                sol['cows'][random.choice(self.feasible_cows)] = random.choice(list(self.reduced_J))
+
+        outage_bts = self.data['bts_df'][self.data['bts_df'].get('status', '') == 'power_outage']['site_id'].tolist() if 'status' in self.data['bts_df'].columns else []
+        if random.random() < p_mut and outage_bts:
+            b = random.choice(outage_bts)
             if random.random() < 0.5:
-                sol['powers'].pop(bts, None)
+                sol['powers'].pop(b, None)
             else:
-                if len(self.feasible_powers) > 0:
-                    sol['powers'][bts] = random.choice(self.feasible_powers)
+                possible = [p for p in self.feasible_powers if p not in sol.get('powers', {}).values()]
+                if not possible:
+                    possible = self.feasible_powers
+                if possible:
+                    sol['powers'][b] = random.choice(possible)
+
+        self._enforce_power_unique(sol)
         return sol
 
+    # ----------------------------------------------------------------------
     def pso_update(self, sol, pbest, gbest, w_p=0.2, w_g=0.2):
-        # discrete PSO-like: for each gene, with prob w_p take pbest value, w_g take gbest value
         child = {'cows': {}, 'powers': {}}
-        all_cows = set(list(sol['cows'].keys()) + list(pbest['cows'].keys()) + list(gbest['cows'].keys()))
-        for cow in all_cows:
+
+        for c in set(sol.get('cows', {}).keys()) | set(pbest.get('cows', {}).keys()) | set(gbest.get('cows', {}).keys()):
             r = random.random()
-            if r < w_p and cow in pbest['cows']:
-                child['cows'][cow] = pbest['cows'][cow]
-            elif r < w_p + w_g and cow in gbest['cows']:
-                child['cows'][cow] = gbest['cows'][cow]
-            elif cow in sol['cows']:
-                child['cows'][cow] = sol['cows'][cow]
-        all_powers = set(list(sol['powers'].keys()) + list(pbest['powers'].keys()) + list(gbest['powers'].keys()))
-        for bts in all_powers:
+            if r < w_p and c in pbest.get('cows', {}):
+                child['cows'][c] = pbest['cows'][c]
+            elif r < w_p + w_g and c in gbest.get('cows', {}):
+                child['cows'][c] = gbest['cows'][c]
+            elif c in sol.get('cows', {}):
+                child['cows'][c] = sol['cows'][c]
+
+        for b in set(sol.get('powers', {}).keys()) | set(pbest.get('powers', {}).keys()) | set(gbest.get('powers', {}).keys()):
             r = random.random()
-            if r < w_p and bts in pbest['powers']:
-                child['powers'][bts] = pbest['powers'][bts]
-            elif r < w_p + w_g and bts in gbest['powers']:
-                child['powers'][bts] = gbest['powers'][bts]
-            elif bts in sol['powers']:
-                child['powers'][bts] = sol['powers'][bts]
+            if r < w_p and b in pbest.get('powers', {}):
+                child['powers'][b] = pbest['powers'][b]
+            elif r < w_p + w_g and b in gbest.get('powers', {}):
+                child['powers'][b] = gbest['powers'][b]
+            elif b in sol.get('powers', {}):
+                child['powers'][b] = sol['powers'][b]
+
+        self._enforce_power_unique(child)
         return child
 
+    # ----------------------------------------------------------------------
     def run(self):
         self.initialize()
         stagn = 0
+
         for it in range(self.max_iter):
             new_pop = []
             new_f = []
-            # elitism
+
             ranked = sorted(zip(self.population, self.fitnesses), key=lambda x: x[1], reverse=True)
             elites = [x[0] for x in ranked[:self.elite_n]]
+
             new_pop.extend(elites)
             new_f.extend([x[1] for x in ranked[:self.elite_n]])
 
             while len(new_pop) < self.pop_size:
-                i = random.randrange(len(self.population))
-                parent = self.population[i]
-                # PSO update
-                child = self.pso_update(parent, self.pbest[i], self.gbest)
-                # crossover with random mate
+                idx = random.randrange(len(self.population))
+                parent = self.population[idx]
+
+                child = self.pso_update(parent, self.pbest[idx], self.gbest)
                 if random.random() < 0.8:
                     mate = random.choice(self.population)
                     child = self.crossover(child, mate)
-                child = self.mutate(child, p_mut=0.05)
+
+                child = self.mutate(child)
                 child = self.repair(child)
                 f = self.evaluate(child)
+
                 new_pop.append(child)
                 new_f.append(f)
+
             self.population = new_pop
             self.fitnesses = new_f
 
-            # update pbest and gbest
-            for i, f in enumerate(self.fitnesses):
+            for i, f in enumerate(new_f):
                 if f > self.pbest_f[i]:
                     self.pbest[i] = self.population[i]
                     self.pbest_f[i] = f
@@ -489,97 +549,326 @@ class HybridGAPSO:
                     self.gbest = self.population[i]
                     self.gbest_f = f
                     stagn = 0
+
             stagn += 1
             if it % 10 == 0:
-                print(f'Iter {it} gbest_f={self.gbest_f:.6f}')
+                print(f"Iter {it}: gbest_f = {self.gbest_f:.6f}")
+
             if stagn > 50:
-                print('Stopping due to stagnation')
+                print('Stopping due to stagnation.')
                 break
+
         return self.gbest, self.gbest_f
 
-# --------------------------- MILP Local Refinement ---------------------------
+# --------------------------- Metrics + Exporter ---------------------------
 
-def milp_local_refinement(data, candidate, cover_cow, cover_bts, time_limit_sec=60, solver_name=None):
-    """Given a candidate solution from GA-PSO, fix some decisions and run MILP to refine.
-    candidate: {'cows':{cow:site}, 'powers':{bts:power}}
-    Returns improved solution (same format)
-    """
-    # We'll build a small MILP: variables for powers assigned to outage BTS (choose power or not), and for optionally swapping cows among a small set.
-    model = pulp.LpProblem('local_refine', pulp.LpMaximize)
+def _build_travel_maps(data):
+    cow_travel_map = {}
+    for _, r in data['cow_travel_df'].iterrows():
+        cow_travel_map[(r.get('cow_id'), r.get('site_id'))] = {
+            'distance_km': float(r.get('distance_km', np.nan)),
+            'travel_time_hr': float(r.get('travel_time_hr', np.nan)),
+            'travel_cost_vnd': float(r.get('travel_cost_vnd', np.nan))
+        }
 
-    # Variables
-    # for each bts in candidate powers or all outage bts, create binary z_b_p for feasible powers
+    power_travel_map = {}
+    for _, r in data['power_travel_df'].iterrows():
+        power_travel_map[(r.get('power_id'), r.get('bts_id'))] = {
+            'distance_km': float(r.get('distance_km', np.nan)),
+            'total_time_hr': float(r.get('total_time_hr', np.nan)) if not pd.isna(r.get('total_time_hr', None)) else np.nan,
+            'total_cost_vnd': float(r.get('total_cost_vnd', np.nan)) if not pd.isna(r.get('total_cost_vnd', None)) else np.nan,
+            'note': r.get('note', '')
+        }
+    return cow_travel_map, power_travel_map
+
+
+def compute_solution_metrics(data, sol):
+    J_df = data['J_df']
     bts_df = data['bts_df']
-    power_df = data['power_df']
-    outage_bts = list(bts_df[bts_df['status'] == 'power_outage']['site_id'])
+    cow_travel_map, power_travel_map = _build_travel_maps(data)
 
-    z = pulp.LpVariable.dicts('z', ((b, p) for b in outage_bts for p in power_df['power_id']), lowBound=0, upBound=1, cat='Binary')
+    covered = 0.0
+    total_cost = 0.0
+    max_t = 0.0
 
-    # objective: maximize coverage (population from restored BTS plus cows fixed)
-    # build population covered by restored BTS
-    pop_by_bts = {r['site_id']: float(r['pop_covered']) for _, r in bts_df.iterrows()}
+    # cows
+    for cow, site in sol.get('cows', {}).items():
+        if site is None or site == '':
+            continue
+        row = J_df[J_df['site_id'] == site]
+        if not row.empty and 'pop' in row.columns:
+            covered += float(row.iloc[0].get('pop', 0.0))
+        info = cow_travel_map.get((cow, site))
+        if info:
+            tt = 0.0 if pd.isna(info['travel_time_hr']) else info['travel_time_hr']
+            cost_c = 0.0 if pd.isna(info['travel_cost_vnd']) else info['travel_cost_vnd']
+            max_t = max(max_t, tt)
+            total_cost += cost_c
+        try:
+            cow_fixed = float(data['cow_df'][data['cow_df']['cow_id'] == cow]['cost_vnd'].iloc[0])
+            total_cost += cow_fixed
+        except Exception:
+            pass
 
-    # coverage from cows is fixed in this refinement
-    cow_covered_pop = 0.0
-    for cow_id, site in candidate['cows'].items():
-        pop = float(data['J_df'][data['J_df']['site_id'] == site]['pop'].sum()) if site is not None else 0.0
-        cow_covered_pop += pop
+    # powers
+    for bts_id, p in sol.get('powers', {}).items():
+        if p is None or p == '':
+            continue
+        row = bts_df[bts_df['site_id'] == bts_id]
+        if not row.empty and 'pop_covered' in row.columns:
+            covered += float(row.iloc[0].get('pop_covered', 0.0))
+        info = power_travel_map.get((p, bts_id))
+        if info:
+            tt = 0.0 if pd.isna(info['total_time_hr']) else info['total_time_hr']
+            max_t = max(max_t, tt)
+            cost_deploy = 0.0 if pd.isna(info['total_cost_vnd']) else info['total_cost_vnd']
 
-    objective = cow_covered_pop + pulp.lpSum([pop_by_bts[b] * z[(b, p)] for b in outage_bts for p in power_df['power_id']])
-    model += objective
+            prow = data['power_df'][data['power_df']['power_id'] == p]
+            if not prow.empty:
+                cost_operating = float(prow.iloc[0].get('cost_vnd_24h', 0.0))
+            else:
+                cost_operating = 0.0
 
-    # constraints: each bts gets at most one power and power available count
-    for b in outage_bts:
-        model += pulp.lpSum([z[(b, p)] for p in power_df['power_id']]) <= 1
-    # each power resource amount limit
-    power_amount = {r['power_id']: float(r['resource_amount']) for _, r in power_df.iterrows()}
-    for p in power_df['power_id']:
-        model += pulp.lpSum([z[(b, p)] for b in outage_bts]) <= power_amount[p]
+            total_cost += cost_deploy + cost_operating
 
-    # compatibility: ensure power capacity >= bts power_W
-    bts_power = {r['site_id']: float(r['power_W']) for _, r in bts_df.iterrows()}
-    power_cap = {}
-    for _, r in power_df.iterrows():
-        # try to parse model/runtime as capacity: fallback to runtime_h*? Not exact but use runtime_h as proxy
-        power_cap[r['power_id']] = float(r.get('runtime_h', 0)) * 1000.0  # crude proxy
-    for b in outage_bts:
-        for p in power_df['power_id']:
-            if power_cap[p] < bts_power[b]:
-                model += z[(b, p)] == 0
+    total_pop = float((J_df['pop'].sum() if 'pop' in J_df.columns else 0.0) + (bts_df['pop_covered'].sum() if 'pop_covered' in bts_df.columns else 0.0))
+    Rcov = covered / (total_pop + 1e-9)
 
-    # budget constraint - cost of assigned powers + fixed cow travel cost
-    power_travel = data['power_travel_df']
-    cow_travel = data['cow_travel_df']
-    fixed_cow_cost = 0.0
-    for cow_id, site in candidate['cows'].items():
-        key = (cow_id, site)
-        row = cow_travel[(cow_travel['cow_id'] == cow_id) & (cow_travel['site_id'] == site)]
-        if row.shape[0] > 0:
-            fixed_cow_cost += float(row.iloc[0]['travel_cost_vnd'])
-    power_cost_expr = pulp.lpSum([float(power_travel[(power_travel['power_id'] == p) & (power_travel['bts_id'] == b)].iloc[0]['total_cost_vnd']) * z[(b, p)]
-                                  for b in outage_bts for p in power_df['power_id'] if not power_travel[(power_travel['power_id'] == p) & (power_travel['bts_id'] == b)].empty])
-    model += fixed_cow_cost + power_cost_expr <= BUDGET_MAX
+    Tnorm = max_t / (24.0 + 1e-9)
+    Cost_pen = max(0.0, (total_cost - BUDGET_MAX) / (BUDGET_MAX + 1e-9))
+    fitness = ALPHA * Rcov - BETA * Tnorm - GAMMA * Cost_pen
 
-    # Solve
-    solver = None
-    if solver_name is not None:
-        solver = pulp.getSolver(solver_name)
-    model.solve(pulp.PULP_CBC_CMD(timeLimit=time_limit_sec))
+    return {
+        'fitness': fitness,
+        'Rcov': Rcov,
+        'max_time_hr': max_t,
+        'total_cost_vnd': total_cost,
+        'covered_pop': covered
+    }
 
-    # extract
-    new_candidate = {'cows': dict(candidate['cows']), 'powers': {}}
-    for b in outage_bts:
-        for p in power_df['power_id']:
+
+def milp_local_refinement(data, sol, cover_cow, cover_bts, time_limit_sec=60, top_k_neighbors=3):
+    try:
+        J_df = data['J_df']
+        bts_df = data['bts_df']
+        cow_df = data['cow_travel_df']
+        power_df = data['power_travel_df']
+
+        # Build lookups
+        cow_lookup = {}
+        for _, r in cow_df.iterrows():
+            cow_id = r.get('cow_id')
+            site_id = r.get('site_id')
             try:
-                if pulp.value(z[(b, p)]) > 0.5:
-                    new_candidate['powers'][b] = p
+                travel_time = float(r.get('travel_time_hr', 0.0)) + 0.5
             except Exception:
-                pass
-    return new_candidate
+                travel_time = 0.5
+            try:
+                travel_cost = float(r.get('travel_cost_vnd', 0.0))
+            except Exception:
+                travel_cost = 0.0
+            try:
+                cow_fixed = float(data['cow_df'][data['cow_df']['cow_id'] == cow_id]['cost_vnd'].iloc[0])
+            except Exception:
+                cow_fixed = 0.0
+            cow_lookup[(cow_id, site_id)] = (travel_time, travel_cost + cow_fixed)
 
-# --------------------------- Orchestration ---------------------------
+        power_lookup = {}
+        for _, r in power_df.iterrows():
+            pid = r.get('power_id')
+            bid = r.get('bts_id')
+            try:
+                tt = float(r.get('total_time_hr', 0.0))
+            except Exception:
+                tt = 0.0
 
-def run_hybrid(max_iter=300, top_k=5):
+            # deployment cost
+            cc_deploy = float(r.get('total_cost_vnd', 0.0))
+
+            prow = data['power_df'][data['power_df']['power_id'] == pid]
+            if not prow.empty:
+                cc_operating = float(prow.iloc[0].get('cost_vnd_24h', 0.0))
+            else:
+                cc_operating = 0.0
+
+            power_lookup[(pid, bid)] = (tt, cc_deploy + cc_operating)
+
+        # Candidate neighborhoods
+        cow_candidates = {}
+        if 'cow_id' in cow_df.columns and 'site_id' in cow_df.columns:
+            for cow_id in cow_df['cow_id'].unique():
+                entries = cow_df[cow_df['cow_id'] == cow_id]
+                if 'travel_cost_vnd' in entries.columns:
+                    entries = entries.sort_values('travel_cost_vnd')
+                cand = entries.head(top_k_neighbors)['site_id'].tolist() if not entries.empty else []
+                cur = sol.get('cows', {}).get(cow_id)
+                if cur and cur not in cand:
+                    cand.insert(0, cur)
+                cow_candidates[cow_id] = list(dict.fromkeys(cand))
+
+        power_candidates = {}
+        outage = bts_df[bts_df.get('status', '') == 'power_outage']['site_id'].tolist() if 'status' in bts_df.columns else []
+        for b in outage:
+            entries = power_df[power_df['bts_id'] == b] if 'bts_id' in power_df.columns else pd.DataFrame()
+            if 'total_cost_vnd' in entries.columns:
+                entries = entries.sort_values('total_cost_vnd')
+            cand = entries.head(top_k_neighbors)['power_id'].tolist() if not entries.empty else []
+            cur = sol.get('powers', {}).get(b)
+            if cur and cur not in cand:
+                cand.insert(0, cur)
+            power_candidates[b] = list(dict.fromkeys(cand))
+
+        if not cow_candidates and not power_candidates:
+            return sol
+
+        # Build MILP
+        model = pulp.LpProblem('local_refinement', pulp.LpMaximize)
+        x = {}
+        z = {}
+
+        for cow, sites in cow_candidates.items():
+            for s in sites:
+                x[(cow, s)] = pulp.LpVariable(f'x_cow_{cow}_{s}', cat='Binary')
+
+        for bts_id, p_list in power_candidates.items():
+            for p in p_list:
+                z[(p, bts_id)] = pulp.LpVariable(f'z_pow_{p}_{bts_id}', cat='Binary')
+
+        # constraints
+        for cow in cow_candidates:
+            model += pulp.lpSum(x[(cow, s)] for s in cow_candidates[cow]) <= 1
+        for b in power_candidates:
+            model += pulp.lpSum(z[(p, b)] for p in power_candidates[b]) <= 1
+
+        all_powers = set(p for (p, b) in z.keys())
+        for p in all_powers:
+            model += pulp.lpSum(z[(pp, b)] for (pp, b) in z.keys() if pp == p) <= 1
+
+        # objective coverage
+        cov_terms = []
+        for (cow, s), var in x.items():
+            if cover_cow.get(cow, {}).get(s, 0) == 1:
+                pop = float(J_df[J_df['site_id'] == s]['pop'].sum()) if 'pop' in J_df.columns else 0.0
+                cov_terms.append(pop * var)
+        for (p, b), var in z.items():
+            pop = float(bts_df[bts_df['site_id'] == b]['pop_covered'].sum()) if 'pop_covered' in bts_df.columns else 0.0
+            cov_terms.append(pop * var)
+
+        covered_expr = pulp.lpSum(cov_terms)
+        total_pop = float((J_df['pop'].sum() if 'pop' in J_df.columns else 0.0) + (bts_df['pop_covered'].sum() if 'pop_covered' in bts_df.columns else 0.0)) + 1e-9
+
+        Tmax = pulp.LpVariable('Tmax', lowBound=0)
+        for (cow, s), var in x.items():
+            tt = cow_lookup.get((cow, s), (np.nan, np.nan))[0]
+            if not pd.isna(tt):
+                model += Tmax >= tt * var
+        for (p, b), var in z.items():
+            tt = power_lookup.get((p, b), (np.nan, np.nan))[0]
+            if not pd.isna(tt):
+                model += Tmax >= tt * var
+
+        # cost
+        cost_terms = []
+        for (cow, s), var in x.items():
+            cost = cow_lookup.get((cow, s), (np.nan, np.nan))[1]
+            if not pd.isna(cost):
+                cost_terms.append(cost * var)
+        for (p, b), var in z.items():
+            cost = power_lookup.get((p, b), (np.nan, np.nan))[1]
+            if not pd.isna(cost):
+                cost_terms.append(cost * var)
+
+        total_cost_expr = pulp.lpSum(cost_terms)
+        cost_pen = (total_cost_expr - BUDGET_MAX) / (BUDGET_MAX + 1e-9)
+
+        model += ALPHA * (covered_expr / total_pop) - BETA * (Tmax / 24.0) - GAMMA * cost_pen
+
+        model.solve(pulp.PULP_CBC_CMD(timeLimit=time_limit_sec, msg=False))
+        if pulp.LpStatus[model.status] not in ['Optimal', 'Feasible']:
+            return sol
+
+        refined = {'cows': {}, 'powers': {}}
+        for (cow, s), var in x.items():
+            val = var.value()
+            if val is not None and val > 0.5:
+                refined['cows'][cow] = s
+        for (p, b), var in z.items():
+            val = var.value()
+            if val is not None and val > 0.5:
+                refined['powers'][b] = p
+
+        if not refined['cows'] and not refined['powers']:
+            return sol
+        return refined
+
+    except Exception as e:
+        print('MILP refine error:', e)
+        return sol
+
+
+def export_solution_files(data, sol, output_dir=None, prefix='solution'):
+    if output_dir is None:
+        output_dir = os.path.join('BTS_Restoration_Project', 'outputs', 'results_hybrid')
+    os.makedirs(output_dir, exist_ok=True)
+
+    cow_travel_map, power_travel_map = _build_travel_maps(data)
+
+    cow_rows = []
+    for cow_id, site_id in sorted(sol.get('cows', {}).items(), key=lambda x: x[0] if isinstance(x[0], (int, str)) else str(x[0])):
+        rec = {'cow_id': cow_id, 'site_id': site_id if site_id is not None else ''}
+        info = cow_travel_map.get((cow_id, site_id), {})
+        rec.update({'distance_km': info.get('distance_km', ''), 'travel_time_hr': info.get('travel_time_hr', ''), 'travel_cost_vnd': info.get('travel_cost_vnd', '')})
+        cow_rows.append(rec)
+
+    df_cow = pd.DataFrame(cow_rows, columns=['cow_id', 'site_id', 'distance_km', 'travel_time_hr', 'travel_cost_vnd'])
+    cow_csv = os.path.join(output_dir, f'{prefix}_cow_assignments_new.csv')
+    df_cow.to_csv(cow_csv, index=False)
+    print('Wrote', cow_csv)
+
+    power_rows = []
+    for bts_id, p_id in sorted(sol.get('powers', {}).items(),
+                               key=lambda x: x[0] if isinstance(x[0], (int, str)) else str(x[0])):
+
+        info = power_travel_map.get((p_id, bts_id), {})
+
+        # operating cost
+        prow = data['power_df'][data['power_df']['power_id'] == p_id]
+        if not prow.empty:
+            cost_operating = float(prow.iloc[0].get('cost_vnd_24h', 0.0))
+        else:
+            cost_operating = 0.0
+
+        cost_deploy = info.get('total_cost_vnd', 0.0)
+
+        rec = {
+            'bts_id': bts_id,
+            'power_id': p_id if p_id is not None else '',
+            'distance_km': info.get('distance_km', ''),
+            'total_time_hr': info.get('total_time_hr', ''),
+            'total_cost_vnd': cost_deploy,
+            'operating_cost_vnd_24h': cost_operating,
+            'total_cost_all_vnd': cost_deploy + cost_operating,
+            'note': info.get('note', '')
+        }
+
+        power_rows.append(rec)
+
+    df_power = pd.DataFrame(power_rows, columns=['bts_id', 'power_id', 'distance_km', 'total_time_hr', 'total_cost_vnd', 'note'])
+    power_csv = os.path.join(output_dir, f'{prefix}_power_assignments_new.csv')
+    df_power.to_csv(power_csv, index=False)
+    print('Wrote', power_csv)
+
+    metrics = compute_solution_metrics(data, sol)
+    summary_path = os.path.join(output_dir, f'{prefix}_summary_new.json')
+    with open(summary_path, 'w') as f:
+        json.dump(metrics, f, indent=2)
+    print('Wrote', summary_path)
+
+    return {'cow_csv': cow_csv, 'power_csv': power_csv, 'summary_json': summary_path, 'metrics': metrics}
+
+# --------------------------- run_hybrid ---------------------------
+
+def run_hybrid(max_iter=300, top_k=5, export_outputs=True):
     data = load_all()
     cover_cow, cover_bts = build_cover_matrices(data['bts_df'], data['J_df'], data['cow_df'])
     reduced_J, feasible_cows, feasible_powers, seeds = milp_presolve(data)
@@ -589,7 +878,6 @@ def run_hybrid(max_iter=300, top_k=5):
     best, best_f = ga.run()
     print('GA-PSO best fitness', best_f)
 
-    # get top-K from population
     ranked = sorted(zip(ga.population, ga.fitnesses), key=lambda x: x[1], reverse=True)
     topK = [x[0] for x in ranked[:top_k]]
 
@@ -597,25 +885,24 @@ def run_hybrid(max_iter=300, top_k=5):
     refined_f = -1e9
     for s in topK:
         cand = milp_local_refinement(data, s, cover_cow, cover_bts, time_limit_sec=60)
-        # evaluate cand
         f = ga.evaluate(cand)
         if f > refined_f:
             refined = cand
             refined_f = f
     print('Refined best fitness', refined_f)
 
-    # produce outputs
-    out = {
-        'ga_best': best,
-        'ga_best_f': best_f,
-        'refined_best': refined,
-        'refined_best_f': refined_f
-    }
+    out = {'ga_best': best, 'ga_best_f': best_f, 'refined_best': refined, 'refined_best_f': refined_f}
     with open('hybrid_result_summary.json', 'w') as f:
         json.dump(out, f, default=list, indent=2)
     print('Saved hybrid_result_summary.json')
+
+    chosen = refined if refined is not None else best
+    if export_outputs and chosen is not None:
+        res = export_solution_files(data, chosen, output_dir=os.path.join('BTS_Restoration_Project', 'outputs', 'results_hybrid'))
+        print('Exported detailed solution files:', res)
+
     return out
 
 
 if __name__ == '__main__':
-    run_hybrid(max_iter=300, top_k=5)
+    run_hybrid(max_iter=300, top_k=5, export_outputs=True)

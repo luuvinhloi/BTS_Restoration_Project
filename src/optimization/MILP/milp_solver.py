@@ -173,7 +173,6 @@ def build_cover_and_travel_maps(data, params):
     # For J infeasible, try to find nearest feasible J within radius find_neighbour_search_m
     # We'll build mapping j -> alternative_j if available
     j_alternative = {}
-    coords_array = j_sites[["latitude", "longitude"]].to_numpy()
     for idx, row in j_sites.iterrows():
         if row["feasible_deploy"]:
             j_alternative[row["site_id"]] = row["site_id"]
@@ -227,6 +226,7 @@ def build_cover_and_travel_maps(data, params):
             "lon": to_float(r.get("lon", 0.0)),
             "runtime_h": to_float(r.get("runtime_h", 0.0)),
             "cost_vnd_24h": to_float(r.get("cost_vnd_24h", 0.0)),
+            # resource_amount left in lookup but will be ignored by MILP (PHƯƠNG ÁN 1)
             "resource_amount": to_float(r.get("resource_amount", 1.0))
         }
 
@@ -245,8 +245,7 @@ def build_cover_and_travel_maps(data, params):
             # assume GENSET produces e.g. 5-10kW; but in backup_power we don't have power rating column
             # We'll use simple rule: if power resource model contains '10KW' or resource_amount suggests capacity large, else use conservative:
             # But safer approach: check that power has runtime and assume it's sufficient; however user requested: "must have power >= consumption"
-            # If backup_power lacks explicit power_kW, we will assume GENSET type meets most BTS loads if resource model name contains '10KW' else reject.
-            # Here implement robust check: try to parse power rating from model string if exists
+            # If backup_power lacks explicit power_kW, we will assume GENSET type meets most BTS loads if model contains '10KW' else reject.
             row = backup_power[backup_power["power_id"] == g]
             meets = False
             if "power_W" in bts_lookup[b]:
@@ -310,7 +309,7 @@ def build_milp_problem(preproc, data, params):
     bts_ids = list(failed_bts["site_id"].astype(str).values)
     power_ids = list(backup_power["power_id"].astype(str).values)
 
-    budget_max = float(params.get("budget_max", 1e19))
+    budget_max = float(params.get("budget_max", 1e9))
     setup_time_h = float(params.get("default_setup_time_h", 0.5))
     M_max = int(params.get("M_max", len(cow_ids)))
 
@@ -382,11 +381,11 @@ def build_milp_problem(preproc, data, params):
     for bi in bts_ids:
         prob += pulp.lpSum([z[g][bi] for g in power_ids]) <= 1, f"one_power_per_bts_{bi}"
 
-    # 7) resource dispatch limits: each power unit g can be assigned at most resource_amount times overall
-    #    In backup_power.csv resource_amount likely mean number of identical units at base.
+    # 7) Each power unit (power_id) is treated as a single physical device (PHƯƠNG ÁN 1):
+    #    enforce that each power_id can be assigned to at most one BTS.
+    #    (This intentionally **ignores** the 'resource_amount' column in CSV: each power_id is one device.)
     for g in power_ids:
-        amount = int(max(1, to_float(power_lookup.get(g, {}).get("resource_amount", 1.0))))
-        prob += pulp.lpSum([z[g][bi] for bi in bts_ids]) <= amount, f"resource_amount_{g}"
+        prob += pulp.lpSum([z[g][bi] for bi in bts_ids]) <= 1, f"one_bts_per_power_{g}"
 
     # 8) w_bts <= u and distance constraints: a demand can be served by bts only if bts restored and within its coverage radius
     # build coverage matrix from bts to demands
@@ -402,7 +401,6 @@ def build_milp_problem(preproc, data, params):
             # compute distance between bts and demand j
             lat_b = to_float(bts_df_map[bi].get("latitude", 0.0))
             lon_b = to_float(bts_df_map[bi].get("longitude", 0.0))
-            lat_j = to_float(preproc["j_sites"].set_index("site_id").loc[bi]["latitude"]) if bi in list(preproc["j_sites"]["site_id"].astype(str).values) else None
             # fallback: get j position
             try:
                 lat_j = to_float(preproc["j_sites"].set_index("site_id").loc[j]["latitude"])
@@ -445,6 +443,11 @@ def build_milp_problem(preproc, data, params):
             travel_t = to_float(preproc["power_travel_map"].get((g, bi), {}).get("total_time_hr", 0.0))
             prob += T_max >= travel_t * z[g][bi], f"Tmax_def_power_{g}_{bi}"
 
+    for j in j_ids:
+        if preproc["j_alternative"].get(j) is None:
+            # không có điểm thay thế → cấm deploy
+            prob += pulp.lpSum(x[k][j] for k in cow_ids) == 0, f"forbid_flooded_J_{j}"
+
     # 13) Budget constraint placeholder (objective uses costs). We'll add final cost expr externally.
     # Save var dict
     var_dict = {
@@ -460,6 +463,20 @@ def build_milp_problem(preproc, data, params):
         "power_ids": power_ids
     }
     return prob, var_dict
+
+def build_coverage_expression(y, w_bts, j_ids, bts_ids, pop_map):
+    """
+    Total covered population by COW + restored BTS
+    """
+    cov_cow = pulp.lpSum(
+        pop_map[j] * pulp.lpSum(y[j][jj] for jj in j_ids)
+        for j in j_ids
+    )
+    cov_bts = pulp.lpSum(
+        pop_map[j] * pulp.lpSum(w_bts[bi][j] for bi in bts_ids)
+        for j in j_ids
+    )
+    return cov_cow + cov_bts
 
 # ---------------------
 # Lexicographic solve orchestration
@@ -486,10 +503,16 @@ def run_lexicographic_for_solver(data, preproc, params, solver_name="CBC", out_d
     cow_travel_map = preproc["cow_travel_map"]
     power_travel_map = preproc["power_travel_map"]
     power_lookup = preproc["power_lookup"]
+    budget_max = float(params.get("budget_max", 1e9))
 
     # demand pop mapping (use j_sites pop as population to be covered)
     pop_map = {str(r["site_id"]): to_float(r.get("pop", 0.0)) for _, r in j_sites.iterrows()}
     total_pop_on_I = sum(pop_map.values())
+
+    priority_map = {
+        str(r["site_id"]): to_float(r.get("priority_weight", 0.0))
+        for _, r in j_sites.iterrows()
+    }
 
     # convenience
     x = var_dict["x"]
@@ -506,28 +529,55 @@ def run_lexicographic_for_solver(data, preproc, params, solver_name="CBC", out_d
     # solver objects
     time_limit = int(params.get("milp", {}).get("solver", {}).get("time_limit", 600))
     if solver_name.upper() == "GUROBI":
-        solver = pulp.GUROBI_CMD(timeLimit=time_limit, msg=True)
+        solver = pulp.GUROBI(
+            timeLimit=time_limit,
+            msg=True
+        )
     else:
         solver = pulp.PULP_CBC_CMD(msg=True, timeLimit=time_limit)
 
+    def build_cow_priority_expression(x, cow_ids, j_ids, priority_map):
+        return pulp.lpSum(
+            priority_map[j] * pulp.lpSum(x[k][j] for k in cow_ids)
+            for j in j_ids
+        )
+
     # ---------------- Step 1: maximize covered population ----------------
-    prob1 = prob_base.copy()
+    prob1, var_dict1 = build_milp_problem(preproc, data, params)
+    x = var_dict1["x"];
+    y = var_dict1["y"]
+    z = var_dict1["z"];
+    w_bts = var_dict1["w_bts"]
+    T_max = var_dict1["T_max"]
     prob1.sense = pulp.LpMaximize
 
     # covered population expression:
     # Population covered by cows: sum_j pop_j * (sum_i y[i,j] where i=j as demand)
     # Population covered by BTS: sum_demands pop_j * (sum_b w_bts[b,j])
-    cov_expr = pulp.lpSum([pop_map.get(j, 0.0) * pulp.lpSum([y[j][jj] for jj in j_ids]) for j in j_ids]) \
-               + pulp.lpSum([pop_map.get(j, 0.0) * pulp.lpSum([w_bts[bi][j] for bi in bts_ids]) for j in j_ids])
+    # cov_expr = pulp.lpSum([pop_map.get(j, 0.0) * pulp.lpSum([y[j][jj] for jj in j_ids]) for j in j_ids]) \
+    #            + pulp.lpSum([pop_map.get(j, 0.0) * pulp.lpSum([w_bts[bi][j] for bi in bts_ids]) for j in j_ids])
+    #
+    # prob1.setObjective(cov_expr)
 
-    prob1.setObjective(cov_expr)
+    cov_expr_1 = build_coverage_expression(y, w_bts, j_ids, bts_ids, pop_map)
+    cow_priority_expr = build_cow_priority_expression(
+        x, cow_ids, j_ids, priority_map
+    )
+
+    EPS_PRIORITY = 1e-4
+    # EPS_PRIORITY is chosen sufficiently small so that
+    # coverage objective always dominates cow priority.
+
+    prob1.setObjective(
+        cov_expr_1 + EPS_PRIORITY * cow_priority_expr
+    )
 
     print("Solving Step 1: maximize covered population...")
     t0 = time.time()
     prob1.solve(solver)
     t1 = time.time()
     status1 = pulp.LpStatus[prob1.status]
-    covered_pop = pulp.value(cov_expr)
+    covered_pop = pulp.value(cov_expr_1)
     print(f" Step1 status={status1}, covered_pop={covered_pop:.2f}, time={t1-t0:.2f}s")
 
     if status1 not in ("Optimal", "Integer Feasible", "Feasible"):
@@ -537,8 +587,17 @@ def run_lexicographic_for_solver(data, preproc, params, solver_name="CBC", out_d
     optimal_covered_pop = covered_pop
 
     # ---------------- Step 2: minimize T_max subject to covered_pop >= optimal_covered_pop ----------------
-    prob2 = prob_base.copy()
-    prob2 += cov_expr >= optimal_covered_pop, "fix_covered_pop"
+    # prob2 = prob_base.copy()
+    # prob2 += cov_expr >= optimal_covered_pop, "fix_covered_pop"
+    prob2, var_dict2 = build_milp_problem(preproc, data, params)
+    x = var_dict2["x"];
+    y = var_dict2["y"]
+    z = var_dict2["z"];
+    w_bts = var_dict2["w_bts"]
+    T_max = var_dict2["T_max"]
+    cov_expr_2 = build_coverage_expression(y, w_bts, j_ids, bts_ids, pop_map)
+    EPS = 1e-6
+    prob2 += cov_expr_2 >= optimal_covered_pop - EPS, "fix_covered_pop"
     prob2.setObjective(T_max)
     prob2.sense = pulp.LpMinimize
 
@@ -557,8 +616,17 @@ def run_lexicographic_for_solver(data, preproc, params, solver_name="CBC", out_d
     optimal_T_max = T_max_val
 
     # ---------------- Step 3: minimize total cost subject to coverage and T_max fixed ----------------
-    prob3 = prob_base.copy()
-    prob3 += cov_expr >= optimal_covered_pop, "fix_covered_pop"
+    # prob3 = prob_base.copy()
+    # prob3 += cov_expr >= optimal_covered_pop, "fix_covered_pop"
+    prob3, var_dict3 = build_milp_problem(preproc, data, params)
+    x = var_dict3["x"];
+    y = var_dict3["y"]
+    z = var_dict3["z"];
+    w_bts = var_dict3["w_bts"]
+    T_max = var_dict3["T_max"]
+    cov_expr_3 = build_coverage_expression(y, w_bts, j_ids, bts_ids, pop_map)
+    EPS = 1e-6
+    prob3 += cov_expr_3 >= optimal_covered_pop - EPS, "fix_covered_pop"
     prob3 += T_max <= optimal_T_max + 1e-9, "fix_T_max"
 
     # total cost: sum cow fixed cost + cow travel cost + power travel cost + power op cost (cost_vnd_24h)
@@ -573,11 +641,47 @@ def run_lexicographic_for_solver(data, preproc, params, solver_name="CBC", out_d
 
     # power assignment costs
     for g in power_ids:
-        power_cost_fixed = to_float(power_lookup.get(g, {}).get("cost_vnd_24h", 0.0))
+        power_operating_cost = to_float(
+            power_lookup.get(g, {}).get("cost_vnd_24h", 0.0)
+        )
         for bi in bts_ids:
-            travel_cost = to_float(power_travel_map.get((g, bi), {}).get("total_cost_vnd", 0.0))
-            # cost includes both travel and fixed cost
-            total_cost_terms.append((power_cost_fixed + travel_cost) * z[g][bi])
+            power_travel_cost = to_float(
+                power_travel_map.get((g, bi), {}).get("total_cost_vnd", 0.0)
+            )
+
+            # Tổng chi phí triển khai nguồn điện dự phòng
+            power_total_cost = power_travel_cost + power_operating_cost
+
+            total_cost_terms.append(power_total_cost * z[g][bi])
+
+    # ---------------- Budget constraint ----------------
+    budget_cost_terms = []
+
+    # COW costs
+    for _, crow in cows.iterrows():
+        k = str(crow["cow_id"])
+        cow_cost = to_float(crow.get("cost_vnd", 0.0))
+        for j in j_ids:
+            travel_cost = to_float(
+                cow_travel_map.get((k, j), {}).get("travel_cost_vnd", 0.0)
+            )
+            budget_cost_terms.append((cow_cost + travel_cost) * x[k][j])
+
+    # Power costs
+    for g in power_ids:
+        power_operating_cost = to_float(
+            power_lookup.get(g, {}).get("cost_vnd_24h", 0.0)
+        )
+        for bi in bts_ids:
+            power_travel_cost = to_float(
+                power_travel_map.get((g, bi), {}).get("total_cost_vnd", 0.0)
+            )
+            budget_cost_terms.append(
+                (power_operating_cost + power_travel_cost) * z[g][bi]
+            )
+
+    # Add budget constraint
+    prob3 += pulp.lpSum(budget_cost_terms) <= budget_max, "Budget_Constraint"
 
     prob3.setObjective(pulp.lpSum(total_cost_terms))
     prob3.sense = pulp.LpMinimize
@@ -664,12 +768,17 @@ def run_lexicographic_for_solver(data, preproc, params, solver_name="CBC", out_d
         travel_cost = to_float(cow_travel_map.get((k,j), {}).get("travel_cost_vnd", 0.0))
         total_fixed_cost += cow_cost
         total_travel_cost += travel_cost
-    # power
+    # powers
     for (g, bi) in assignments_power:
-        power_cost = to_float(power_lookup.get(g, {}).get("cost_vnd_24h", 0.0))
-        travel_cost = to_float(power_travel_map.get((g, bi), {}).get("total_cost_vnd", 0.0))
-        total_fixed_cost += power_cost
-        total_travel_cost += travel_cost
+        power_operating_cost = to_float(
+            power_lookup.get(g, {}).get("cost_vnd_24h", 0.0)
+        )
+        power_travel_cost = to_float(
+            power_travel_map.get((g, bi), {}).get("total_cost_vnd", 0.0)
+        )
+
+        total_fixed_cost += power_operating_cost
+        total_travel_cost += power_travel_cost
 
     total_cost_all = total_fixed_cost + total_travel_cost
 
@@ -709,6 +818,11 @@ def run_lexicographic_for_solver(data, preproc, params, solver_name="CBC", out_d
     df_power_assign = pd.DataFrame(assignments_power, columns=["power_id", "bts_id"])
     df_power_assign = df_power_assign.merge(backup_power, left_on="power_id", right_on="power_id", how="left")
     df_power_assign["travel_cost_vnd"] = df_power_assign.apply(lambda r: to_float(power_travel_map.get((r["power_id"], r["bts_id"]), {}).get("total_cost_vnd", 0.0)), axis=1)
+    df_power_assign["operating_cost_vnd_24h"] = df_power_assign["cost_vnd_24h"]
+    df_power_assign["total_deployment_cost_vnd"] = (
+            df_power_assign["travel_cost_vnd"]
+            + df_power_assign["operating_cost_vnd_24h"]
+    )
     df_power_assign["travel_time_hr"] = df_power_assign.apply(lambda r: to_float(power_travel_map.get((r["power_id"], r["bts_id"]), {}).get("total_time_hr", 0.0)), axis=1)
     df_power_assign.to_csv(out_dir_run / f"assignments_power_{solver_name}.csv", index=False)
 
@@ -780,7 +894,7 @@ def main_solve(config_params: dict, processed_data_dir: str, outputs_dir: str = 
 if __name__ == "__main__":
     # minimal params
     params = {
-        "budget_max": 1e19,
+        "budget_max": 1e9,
         "default_setup_time_h": 0.5,
         "flood_deploy_threshold_m": 0.5,
         "neighbour_search_m": 500.0,

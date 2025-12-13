@@ -24,15 +24,13 @@ import pandas as pd
 import networkx as nx
 from sklearn.neighbors import BallTree
 
-# -------------------------
 # DEFAULT CONSTANTS / PARAMS
-# -------------------------
-# --- COW fuel (kept from original script) ---
+#  COW fuel (kept from original script)
 FUEL_CONSUMPTION_L_PER_100KM_COW = 10.0   # L / 100km (default)
 FUEL_PRICE_VND_PER_L_COW = 23000.0
 FUEL_COST_PER_KM_COW = (FUEL_CONSUMPTION_L_PER_100KM_COW / 100.0) * FUEL_PRICE_VND_PER_L_COW
 
-# --- Backup transport defaults (averages chosen) ---
+#  Backup transport defaults (averages chosen)
 # Truck (vehicle) parameters (vehicle that transports backup power)
 TRUCK_KM_PER_LITER = 9.5          # midpoint of 8 - 11 km per liter
 TRUCK_FUEL_PRICE_VND_PER_L = 23000.0
@@ -45,9 +43,7 @@ BOAT_SPEED_KMH = 35.0
 
 EARTH_RADIUS_M = 6371000.0
 
-# -------------------------
 # Utilities
-# -------------------------
 def haversine_distance_m(lat1, lon1, lat2, lon2):
     phi1 = math.radians(lat1)
     phi2 = math.radians(lat2)
@@ -65,9 +61,7 @@ def load_graph_pickle(path):
     with open(path, "rb") as f:
         return pickle.load(f)
 
-# -------------------------
 # Graph loading / normalization / BallTree
-# -------------------------
 def load_graphml_graph(graphml_path):
     """
     Load GraphML produced by generate_flooded_roads_with_graph.py.
@@ -187,9 +181,7 @@ def nearest_node(tree, node_ids, coords_rad, lon, lat):
     dist_rad, idx = tree.query(pt, k=1)
     return node_ids[idx[0][0]]
 
-# -------------------------
 # COW travel (uses only passable edges)
-# -------------------------
 def compute_time_cost_cow(distance_km, speed_kmh):
     speed = max(float(speed_kmh), 1.0)
     time_hr = distance_km / speed
@@ -210,7 +202,6 @@ def compute_cow_travel_matrix(
     Only uses passable edges (is_passable == True). Snaps origins and targets to nearest graph node via BallTree.
 
     Parameters
-    ----------
     cow_csv : path to cow_dataset.csv (must contain columns 'cow_id','lat','lon','speed_kmh', 'base_id')
     site_csv : path to J_sites.csv (must contain columns 'site_id','latitude','longitude')
     graphml_path : path to roads_flooded.graphml
@@ -306,9 +297,7 @@ def compute_cow_travel_matrix(
     print(f"Saved COW travel matrix to: {output_csv} (rows: {len(df_out)})")
     return df_out
 
-# -------------------------
 # Backup power travel (truck + boat multimodal)
-# -------------------------
 def _edge_travel_time_and_cost_for_backup(edge_data,
                                           truck_km_per_l=TRUCK_KM_PER_LITER,
                                           truck_speed_kmh=TRUCK_SPEED_KMH,
@@ -489,9 +478,7 @@ def compute_backup_travel_matrix(
     print(f"Saved backup travel matrix to: {output_csv} (rows: {len(df_out)})")
     return df_out
 
-# -------------------------
 # Main runnable example
-# -------------------------
 if __name__ == "__main__":
     base_dir = "data/processed"
     graphml = os.path.join(base_dir, "road", "roads_flooded.graphml")
