@@ -1,108 +1,112 @@
+# Lựa chọn phương pháp chính method: "MILP" # "MILP" or "GA_PSO" or "MILP_GA_PSO"
+method: "MILP" # "MILP" or "GA_PSO" or "MILP_GA_PSO"
 
-# CẤU HÌNH CHUNG CHO TOÀN BỘ PIPELINE
+# GLOBAL
+random_seed: 42
+budget_max: 1e9                # VNĐ
+M_max: 36                        # Max number of COWs
+default_setup_time_h: 0.5        # Used by MILP & GA-PSO
 
-# Lựa chọn phương pháp chính
-method: "MILP"                # "MILP" or "GA_PSO" or "MILP_GA_PSO"
-
-# Tham số mô phỏng & hệ thống
-damage_rate: 0.85             # Tỉ lệ BTS bị hỏng (0.6–0.9)
-population_sample_limit: 2000 # Giới hạn số điểm dân cư mẫu
-candidate_max: 1000            # Số điểm ứng viên tối đa cho COW
-M_max: 20                     # Số lượng xe COW tối đa có thể triển khai
-budget_max: 1e9               # Ngân sách tối đa (VNĐ)
-cover_ratio: 1.0              # Hệ số bao phủ
-seed: 42                      # Seed ngẫu nhiên để tái lập kết quả
-
-# Tham số ràng buộc về thời gian & endurance
-endurance_mode: "none"                # one of: none, broadcast, travel_plus_setup, total
-required_broadcast_time_h: 0        # hours required at deployed site (set 0 to ignore)
-
-# Tham số mặc định cho mỗi COW / site
-default_R: 3000               # Bán kính phủ sóng mặc định (m)
-default_cost: 2e7             # Chi phí triển khai mặc định (VNĐ)
-default_setup_time_h: 0.5     # Thời gian lắp đặt mặc định (giờ)
-
-# Điều kiện địa hình / kỹ thuật chung
-slope_threshold_deg: 50       # Ngưỡng độ dốc loại trừ (độ)
-road_buffer_m: 500            # Khoảng cách tối đa từ site tới đường (m)
-candidate_radius_m: 500       # Bán kính tìm site ứng viên quanh BTS hỏng (m)
-candidate_per_bts: 3          # Số site ứng viên tạo cho mỗi BTS hỏng
-
-# THAM SỐ CHO FEATURE EXTRACTION (Sinh tập I và J)
+# FEATURE EXTRACTION (feature_extraction_final.py)
 feature_extraction:
-  # Lọc raster dân số
-  pop_threshold: 3             # Ngưỡng tối thiểu để giữ ô raster dân số (giảm → nhiều I hơn)
+  # --- Population raster ---
+  pop_threshold: 3
+  pop_sample_max: 12000
 
-  # Phân cụm DBSCAN (tạo cụm dân cư I)
-  eps_dbscan_m: 1200           # Bán kính phân cụm (m): giảm -> nhiều cụm nhỏ hơn
-  db_min_samples: 2            # Số pixel tối thiểu để tạo cụm: giảm -> nhiều cụm lẻ hơn
+  # --- DBSCAN clustering (I points) ---
+  eps_dbscan_m: 1200
+  db_min_samples: 2
 
-  # Sinh tập I (demand points)
-  default_R: 3000              # Bán kính phủ sóng của cụm I (m)
-  infra_buffer_m: 1500         # Vùng tính ưu tiên quanh hạ tầng (m)
+  # --- Coverage ---
+  default_R: 3000                # R_I (used for I + J + cover.npy)
 
-  # Sinh tập J (candidate sites)
-  candidate_per_cluster: 30     # Số site ứng viên quanh mỗi I: tăng -> tăng M
-  candidate_jitter_m: 600      # Độ ngẫu nhiên khi sinh site quanh I (m)
-  road_buffer_m: 5000          # Khoảng cách tối đa đến đường (m)
-  slope_threshold_deg: 35      # Độ dốc tối đa cho phép site
-  candidate_samples_global: 10000  # Số site ứng viên sinh toàn vùng (global)
+  # --- I constraints ---
+  max_I: 1500
+  infra_buffer_m: 1500
 
-  # Giới hạn và kiểm soát
-  max_I: 1500                  # Giới hạn số lượng I (khu vực, địa điểm)
-  max_J: 1200                  # Giới hạn số lượng J (site ứng viên)
+  # --- J candidate generation ---
+  candidate_per_cluster: 12
+  road_buffer_m: 4000
+  slope_threshold_deg: 30
+  flood_depth_threshold_m: 0.5
 
-  # Ngẫu nhiên / reproducibility
+  # --- Sampling ---
+  global_sampling: "medium"      # low | medium | high
+  global_samples_low: 250
+  global_samples_medium: 500
+  global_samples_high: 1000
+
+  # --- J reduction ---
+  max_J: 1200
+  target_J: 1000
+  overlap_keep_threshold: 0.05
+  min_uncov_pop_frac: 0.002
+  J_strategy: "balanced"
+
+  # --- Geometry ---
+  dedup_round: 5
+  road_samples_per_line: 2
+  extra_jitter_scales: [100, 300, 800]
+
   seed: 42
 
-# PHƯƠNG PHÁP 1: MILP (Mixed-Integer Linear Programming)
+
+# MILP SOLVER (milp_solver.py)
 milp:
-  # Bộ giải (solver)
+
   solver:
-    engine: "gurobi"           # solver
-    time_limit: 1000           # Giới hạn thời gian chạy (giây)
+    engine: "CBC"                # CBC | GUROBI
+    time_limit: 600              # seconds
 
-  # Hàm mục tiêu (fitness)
-  weights:
-    w_time: 0.05               # Hệ số phạt cho thời gian di chuyển
-    w_cost: 0.1                # Hệ số phạt cho chi phí vượt ngân sách
+  # Flood / geometry feasibility
+  flood_deploy_threshold_m: 0.5
+  neighbour_search_m: 500
 
-#  # Ràng buộc
-#  budget_max: 5e8              # Ngân sách tối đa (VNĐ)
-#  M_max: 20                    # Số lượng COW tối đa được phép triển khai
+  # (read directly by milp_solver.py)
+  # budget_max, M_max, default_setup_time_h inherited from GLOBAL
 
-  # Mô phỏng sau tối ưu
-  simulation:
-    enable: true
-    scenario: "standard"       # Kịch bản mô phỏng
-    visualize: true            # Hiển thị bản đồ Folium sau khi chạy
 
-# PHƯƠNG PHÁP 2: GA-PSO LAI (Genetic Algorithm + Particle Swarm)
+# GA-PSO SOLVER (ga_pso_solver.py)
 ga_pso:
-  # Cấu hình thuật toán
-  runs: 1                     # Số lần chạy độc lập để thống kê
-  pop_size: 100                # Kích thước quần thể
-  max_iter: 200                # Số vòng lặp tối đa
-  mutation_rate: 0.08          # Xác suất đột biến
-  ga_period: 10                # Chu kỳ lai ghép GA trong vòng PSO
-  elitism: 0.1                 # Tỉ lệ cá thể ưu tú
 
-  # Chi phí và ràng buộc
-#  budget_max: 5e8              # Ngân sách tối đa (VNĐ)
-  cost_per_km_factor: 0.2      # Chi phí di chuyển theo km
-  max_slope_deg: 15.0          # Ràng buộc độ dốc tối đa
+  runs: 1
+  pop_size: 100
+  max_iter: 200
+  mutation_rate: 0.08
+  ga_period: 10
+  elitism: 0.1
 
-  # Hàm mục tiêu (fitness)
+  # Constraints
+  budget_max: 1e9
+  flood_depth_threshold_m: 0.5
+  max_slope_deg: 15.0
+
+  # Time & cost
+  default_setup_time_h: 0.5
+  cost_per_km_factor: 0.2
+
+  # Fitness weights (MINIMIZATION)
   weights:
-    w_time: 0.2               # Hệ số phạt thời gian
-    w_cost: 0.4                # Hệ số phạt chi phí
-  coverage_weight: 0.5         # Trọng số bổ sung cho độ phủ (tuỳ chọn mở rộng)
+    w_time: 0.2
+    w_cost: 0.4
+    coverage_weight: 0.5
 
-  # Đầu ra
-  output_dir: "outputs/results_ga_pso"
+  output_dir: "BTS_Restoration_Project/outputs/results_ga_pso"
 
-  # Mô phỏng sau tối ưu
-  simulation:
-    enable: true
-    scenario: "dynamic_coverage"
-    visualize: true
+
+# HYBRID MILP + GA-PSO (hybrid_milp_ga_pso.py)
+hybrid:
+  pop_size: 80
+  max_iter: 300
+  elite_n: 5
+
+  # MILP refinement
+  milp_refine_time_limit_s: 60
+  milp_top_k_neighbors: 5
+
+  # Fitness coefficients (used internally in hybrid)
+  alpha: 1.0
+  beta: 0.01
+  gamma: 0.000001
+
+  budget_max: 1e9
