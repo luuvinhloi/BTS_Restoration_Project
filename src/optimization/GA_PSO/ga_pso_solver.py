@@ -36,12 +36,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 # -----------------------
 DEFAULT_CONFIG = {
     "data_paths": {
-        "J_sites": str(PROJECT_ROOT / "data/processed/position_I_J/J_sites_new.csv"),
+        "J_sites": str(PROJECT_ROOT / "data/processed/position_I_J/J_sites.csv"),
         "cow_dataset": str(PROJECT_ROOT / "data/processed/cow/cow_dataset.csv"),
         "backup_power": str(PROJECT_ROOT / "data/processed/backup_power/backup_power.csv"),
         "failed_bts": str(PROJECT_ROOT / "data/processed/damage_bts/failed_bts.csv"),
-        "cow_to_J": str(PROJECT_ROOT / "data/processed/travel_cost/cow_to_J_sites_new.csv"),
-        "backup_to_bts": str(PROJECT_ROOT / "data/processed/travel_cost/backup_to_failed_bts_new.csv"),
+        "cow_to_J": str(PROJECT_ROOT / "data/processed/travel_cost/cow_to_J_sites.csv"),
+        "backup_to_bts": str(PROJECT_ROOT / "data/processed/travel_cost/backup_to_failed_bts.csv"),
         "roads_graphml": str(PROJECT_ROOT / "data/processed/road/roads_flooded.graphml"),
         "flood_tif": str(PROJECT_ROOT / "data/processed/flood/flood_depth_combined_B_clean.tif"),
     },
@@ -799,7 +799,7 @@ class GA_PSOSolver:
                 rec.update(self.cow_travel_map[(cow_id, site_id)])
             cow_rows.append(rec)
         df_cow_out = pd.DataFrame(cow_rows)
-        df_cow_out.to_csv(self.output_dir / "solution_cow_assignments_new.csv", index=False)
+        df_cow_out.to_csv(self.output_dir / "solution_cow_assignments.csv", index=False)
 
         # export power assignments
         power_rows = []
@@ -814,14 +814,14 @@ class GA_PSOSolver:
                 rec["total_cost_all_vnd"] = rec["total_cost_vnd"] + rec["operating_cost_vnd_24h"]
             power_rows.append(rec)
         df_power_out = pd.DataFrame(power_rows)
-        df_power_out.to_csv(self.output_dir / "solution_power_assignments_new.csv", index=False)
+        df_power_out.to_csv(self.output_dir / "solution_power_assignments.csv", index=False)
 
         # summary
         summary = {
             "fitness": sol.fitness,
             **sol.metrics
         }
-        with open(self.output_dir / "solution_summary_new.json", "w") as f:
+        with open(self.output_dir / "solution_summary.json", "w") as f:
             json.dump(summary, f, indent=2)
 
         logging.info("Solution exported to %s", str(self.output_dir))
