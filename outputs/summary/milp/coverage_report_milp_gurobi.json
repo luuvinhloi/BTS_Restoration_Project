@@ -1,0 +1,19 @@
+{
+  "method": "MILP_GUROBI",
+  "total_population": 1186740.625,
+  "population_covered_by_active_bts": 707911.5625,
+  "population_outage_due_failed_bts": 497148.53125,
+  "lost_coverage_percent": 41.89,
+  "failed_union_population": 1147635.125,
+  "population_restored_by_cows": 259373.0625,
+  "population_restored_by_power": 244748.9375,
+  "population_restored_total": 281335.25,
+  "coverage_restored_percent_of_outage": 56.59,
+  "coverage_after_restoration_percent": 83.36,
+  "cow_union_pop_total": 370586.25,
+  "power_union_pop_total": 339008.71875,
+  "max_deploy_time_hr": 1.5153139713,
+  "total_deployment_cost_vnd": 151671955.96844482,
+  "cow_count_used": 10,
+  "power_units_used": 37
+}

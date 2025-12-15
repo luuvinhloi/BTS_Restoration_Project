@@ -16,13 +16,13 @@ env/
 notebooks/
 logs/
 
-# Output files - ignore everything in outputs by default
-outputs/*
-
-# Keep specific subfolders inside outputs
-!outputs/logs/
-!outputs/maps/
-!outputs/results/
+## Output files - ignore everything in outputs by default
+#outputs/*
+#
+## Keep specific subfolders inside outputs
+#!outputs/logs/
+#!outputs/maps/
+#!outputs/results/
 
 # Ignore heavy binary/data file types everywhere by default
 *.npy
