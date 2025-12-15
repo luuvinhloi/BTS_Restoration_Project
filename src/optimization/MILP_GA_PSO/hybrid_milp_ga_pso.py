@@ -25,9 +25,7 @@ try:
 except Exception:
     rasterio = None
 
-# --------------------------- Configuration ---------------------------
-
-
+# Configuration
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 # hybrid_milp_ga_pso.py
 # parents[0] = MILP_GA_PSO
@@ -38,29 +36,28 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DATA_ROOT = PROJECT_ROOT / "data" / "processed"
 
 PATHS = {
-    'J_sites': DATA_ROOT / "position_I_J" / "J_sites_new.csv",
+    'J_sites': DATA_ROOT / "position_I_J" / "J_sites.csv",
     'cow_dataset': DATA_ROOT / "cow" / "cow_dataset.csv",
     'backup_power': DATA_ROOT / "backup_power" / "backup_power.csv",
     'failed_bts': DATA_ROOT / "damage_bts" / "failed_bts.csv",
     'flood_tif': DATA_ROOT / "flood" / "flood_depth_combined_B_clean.tif",
     'roads_graph': DATA_ROOT / "road" / "roads_flooded.graphml",
-    'cow_travel': DATA_ROOT / "travel_cost" / "cow_to_J_sites_new.csv",
-    'power_travel': DATA_ROOT / "travel_cost" / "backup_to_failed_bts_new.csv"
+    'cow_travel': DATA_ROOT / "travel_cost" / "cow_to_J_sites.csv",
+    'power_travel': DATA_ROOT / "travel_cost" / "backup_to_failed_bts.csv"
 }
 
-BUDGET_MAX = 1e9  # VNĐ
+BUDGET_MAX = 1e9  # 1 tỷ VNĐ
 ALPHA = 1.0
 BETA = 0.01
 GAMMA = 0.000001
 
-# --------------------------- Data structures ---------------------------
+# Data structures
 COW = namedtuple('COW', 'cow_id base_id base_name type lat lon coverage_radius_m power_kw speed_kmh endurance_hr cost_vnd assigned_region')
 POWER = namedtuple('POWER', 'base_id power_id lat lon base_name type model runtime_h cost_vnd_24h resource_amount')
 BTS = namedtuple('BTS', 'site_id latitude longitude utm_x utm_y pop_covered pop_unique_covered overlap_ratio_network total_unique_pop_network elevation_m slope_deg neighbour_weight dist_to_school_m dist_to_hospital_m dist_to_road_m dist_to_residential_m dist_to_industrial_m site_accessibility_score antenna_height_m region_type bts_type coverage_radius_m power_W flooded status')
 JSITE = namedtuple('JSITE', 'site_id i_ref latitude longitude pop priority_category priority_weight slope dist_to_road_m in_water')
 
-# --------------------------- Utility ---------------------------
-
+# Utility
 def haversine_km(lat1, lon1, lat2, lon2):
     R = 6371.0
     phi1 = math.radians(lat1)
@@ -70,8 +67,7 @@ def haversine_km(lat1, lon1, lat2, lon2):
     a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlambda/2)**2
     return 2 * R * math.asin(math.sqrt(a))
 
-# --------------------------- Data Loading ---------------------------
-
+# Data Loading
 def load_all():
     print("Loading datasets...")
     J_df = pd.read_csv(PATHS['J_sites'])
@@ -108,8 +104,7 @@ def load_all():
         'flood_src': flood_src
     }
 
-# --------------------------- Coverage matrices ---------------------------
-
+# Coverage matrices
 def build_cover_matrices(bts_df, J_df, cow_df):
     print('Building coverage matrices...')
     cover_cow = defaultdict(dict)
@@ -133,8 +128,7 @@ def build_cover_matrices(bts_df, J_df, cow_df):
 
     return cover_cow, cover_bts
 
-# --------------------------- MILP presolve ---------------------------
-
+# MILP presolve
 def milp_presolve(data):
     J_df = data['J_df']
     cow_df = data['cow_df']
@@ -189,8 +183,7 @@ def milp_presolve(data):
     print(f"MILP presolve: {len(seeds)} seed solutions generated.")
     return reduced_J, feasible_cow_ids, feasible_power_ids, seeds
 
-# --------------------------- GA-PSO Implementation ---------------------------
-
+# GA-PSO Implementation
 class HybridGAPSO:
     def __init__(self, data, cover_cow, cover_bts, reduced_J, feasible_cows, feasible_powers, seeds,
                  pop_size=80, max_iter=150, elite_n=5):
@@ -234,7 +227,6 @@ class HybridGAPSO:
         self.gbest = None
         self.gbest_f = -1e18
 
-    # ----------------------------------------------------------------------
     def _enforce_power_unique(self, sol):
         usage = defaultdict(list)
         for bts_id, p in list(sol.get('powers', {}).items()):
@@ -253,7 +245,6 @@ class HybridGAPSO:
             for bts_remove, _, _ in lst[1:]:
                 sol['powers'].pop(bts_remove, None)
 
-    # ----------------------------------------------------------------------
     def initialize(self):
         print('Initializing GA-PSO population...')
 
@@ -301,7 +292,6 @@ class HybridGAPSO:
         self.gbest_f = self.fitnesses[idx]
         print('Initial best fitness =', self.gbest_f)
 
-    # ----------------------------------------------------------------------
     def evaluate(self, sol):
         J_df = self.data['J_df']
         bts_df = self.data['bts_df']
@@ -370,7 +360,6 @@ class HybridGAPSO:
         fitness = ALPHA * Rcov - BETA * Tnorm - GAMMA * Cost_pen
         return fitness
 
-    # ----------------------------------------------------------------------
     def repair(self, sol):
         cost_items = []
         total_cost = 0.0
@@ -437,7 +426,6 @@ class HybridGAPSO:
         self._enforce_power_unique(sol)
         return sol
 
-    # ----------------------------------------------------------------------
     def crossover(self, a, b):
         child = {'cows': {}, 'powers': {}}
         for cow in set(a.get('cows', {}).keys()) | set(b.get('cows', {}).keys()):
@@ -459,7 +447,6 @@ class HybridGAPSO:
         self._enforce_power_unique(child)
         return child
 
-    # ----------------------------------------------------------------------
     def mutate(self, sol, p_mut=0.05):
         if random.random() < p_mut and self.feasible_cows:
             if random.random() < 0.5 and sol.get('cows'):
@@ -482,7 +469,6 @@ class HybridGAPSO:
         self._enforce_power_unique(sol)
         return sol
 
-    # ----------------------------------------------------------------------
     def pso_update(self, sol, pbest, gbest, w_p=0.2, w_g=0.2):
         child = {'cows': {}, 'powers': {}}
 
@@ -507,7 +493,6 @@ class HybridGAPSO:
         self._enforce_power_unique(child)
         return child
 
-    # ----------------------------------------------------------------------
     def run(self):
         self.initialize()
         stagn = 0
@@ -560,8 +545,7 @@ class HybridGAPSO:
 
         return self.gbest, self.gbest_f
 
-# --------------------------- Metrics + Exporter ---------------------------
-
+# Metrics + Exporter
 def _build_travel_maps(data):
     cow_travel_map = {}
     for _, r in data['cow_travel_df'].iterrows():
@@ -580,7 +564,6 @@ def _build_travel_maps(data):
             'note': r.get('note', '')
         }
     return cow_travel_map, power_travel_map
-
 
 def compute_solution_metrics(data, sol):
     J_df = data['J_df']
@@ -645,7 +628,6 @@ def compute_solution_metrics(data, sol):
         'total_cost_vnd': total_cost,
         'covered_pop': covered
     }
-
 
 def milp_local_refinement(data, sol, cover_cow, cover_bts, time_limit_sec=60, top_k_neighbors=3):
     try:
@@ -805,7 +787,6 @@ def milp_local_refinement(data, sol, cover_cow, cover_bts, time_limit_sec=60, to
         print('MILP refine error:', e)
         return sol
 
-
 def export_solution_files(data, sol, output_dir=None, prefix='solution'):
     if output_dir is None:
         output_dir = os.path.join('BTS_Restoration_Project', 'outputs', 'results_hybrid')
@@ -814,14 +795,63 @@ def export_solution_files(data, sol, output_dir=None, prefix='solution'):
     cow_travel_map, power_travel_map = _build_travel_maps(data)
 
     cow_rows = []
-    for cow_id, site_id in sorted(sol.get('cows', {}).items(), key=lambda x: x[0] if isinstance(x[0], (int, str)) else str(x[0])):
-        rec = {'cow_id': cow_id, 'site_id': site_id if site_id is not None else ''}
+    SETUP_TIME_HR = 0.5
+
+    for cow_id, site_id in sorted(
+            sol.get('cows', {}).items(),
+            key=lambda x: x[0] if isinstance(x[0], (int, str)) else str(x[0])
+    ):
+        rec = {
+            'cow_id': cow_id,
+            'site_id': site_id if site_id is not None else ''
+        }
+
         info = cow_travel_map.get((cow_id, site_id), {})
-        rec.update({'distance_km': info.get('distance_km', ''), 'travel_time_hr': info.get('travel_time_hr', ''), 'travel_cost_vnd': info.get('travel_cost_vnd', '')})
+
+        travel_time = info.get('travel_time_hr', 0.0)
+        travel_cost = info.get('travel_cost_vnd', 0.0)
+
+        # fixed cow cost
+        crow = data['cow_df'][data['cow_df']['cow_id'] == cow_id]
+        if not crow.empty:
+            cost_vnd = float(crow.iloc[0].get('cost_vnd', 0.0))
+        else:
+            cost_vnd = 0.0
+
+        rec.update({
+            'distance_km': info.get('distance_km', ''),
+            'travel_time_hr': travel_time,
+            'total_time_hr': (
+                float(travel_time) + SETUP_TIME_HR
+                if travel_time != '' and not pd.isna(travel_time)
+                else ''
+            ),
+            'travel_cost_vnd': travel_cost,
+            'cost_vnd': cost_vnd,
+            'total_cost_vnd': (
+                float(travel_cost) + cost_vnd
+                if travel_cost != '' and not pd.isna(travel_cost)
+                else ''
+            )
+        })
+
         cow_rows.append(rec)
 
-    df_cow = pd.DataFrame(cow_rows, columns=['cow_id', 'site_id', 'distance_km', 'travel_time_hr', 'travel_cost_vnd'])
-    cow_csv = os.path.join(output_dir, f'{prefix}_cow_assignments_new.csv')
+    df_cow = pd.DataFrame(
+        cow_rows,
+        columns=[
+            'cow_id',
+            'site_id',
+            'distance_km',
+            'travel_time_hr',
+            'total_time_hr',
+            'travel_cost_vnd',
+            'cost_vnd',
+            'total_cost_vnd'
+        ]
+    )
+
+    cow_csv = os.path.join(output_dir, f'{prefix}_cow_assignments.csv')
     df_cow.to_csv(cow_csv, index=False)
     print('Wrote', cow_csv)
 
@@ -834,40 +864,52 @@ def export_solution_files(data, sol, output_dir=None, prefix='solution'):
         # operating cost
         prow = data['power_df'][data['power_df']['power_id'] == p_id]
         if not prow.empty:
-            cost_operating = float(prow.iloc[0].get('cost_vnd_24h', 0.0))
+            cost_vnd_24h = float(prow.iloc[0].get('cost_vnd_24h', 0.0))
         else:
-            cost_operating = 0.0
+            cost_vnd_24h = 0.0
 
-        cost_deploy = info.get('total_cost_vnd', 0.0)
+        travel_cost_vnd = info.get('total_cost_vnd', 0.0)
 
         rec = {
             'bts_id': bts_id,
             'power_id': p_id if p_id is not None else '',
             'distance_km': info.get('distance_km', ''),
             'total_time_hr': info.get('total_time_hr', ''),
-            'total_cost_vnd': cost_deploy,
-            'operating_cost_vnd_24h': cost_operating,
-            'total_cost_all_vnd': cost_deploy + cost_operating,
+            'travel_cost_vnd': travel_cost_vnd,
+            'cost_vnd_24h': cost_vnd_24h,
+            'total_cost_vnd': travel_cost_vnd + cost_vnd_24h,
             'note': info.get('note', '')
         }
 
         power_rows.append(rec)
 
-    df_power = pd.DataFrame(power_rows, columns=['bts_id', 'power_id', 'distance_km', 'total_time_hr', 'total_cost_vnd', 'note'])
-    power_csv = os.path.join(output_dir, f'{prefix}_power_assignments_new.csv')
+    df_power = pd.DataFrame(
+        power_rows,
+        columns=[
+            'bts_id',
+            'power_id',
+            'distance_km',
+            'total_time_hr',
+            'travel_cost_vnd',
+            'cost_vnd_24h',
+            'total_cost_vnd',
+            'note'
+        ]
+    )
+
+    power_csv = os.path.join(output_dir, f'{prefix}_power_assignments.csv')
     df_power.to_csv(power_csv, index=False)
     print('Wrote', power_csv)
 
     metrics = compute_solution_metrics(data, sol)
-    summary_path = os.path.join(output_dir, f'{prefix}_summary_new.json')
+    summary_path = os.path.join(output_dir, f'{prefix}_summary.json')
     with open(summary_path, 'w') as f:
         json.dump(metrics, f, indent=2)
     print('Wrote', summary_path)
 
     return {'cow_csv': cow_csv, 'power_csv': power_csv, 'summary_json': summary_path, 'metrics': metrics}
 
-# --------------------------- run_hybrid ---------------------------
-
+# run_hybrid
 def run_hybrid(max_iter=300, top_k=5, export_outputs=True):
     data = load_all()
     cover_cow, cover_bts = build_cover_matrices(data['bts_df'], data['J_df'], data['cow_df'])
@@ -902,7 +944,6 @@ def run_hybrid(max_iter=300, top_k=5, export_outputs=True):
         print('Exported detailed solution files:', res)
 
     return out
-
 
 if __name__ == '__main__':
     run_hybrid(max_iter=300, top_k=5, export_outputs=True)

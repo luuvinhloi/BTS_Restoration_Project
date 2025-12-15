@@ -1,71 +1,74 @@
-# =============================================================
-# CẤU HÌNH CHUNG CHO TOÀN BỘ PIPELINE
-# =============================================================
+# Lựa chọn phương pháp chính method: "MILP" # "MILP" or "GA_PSO" or "MILP_GA_PSO"
+method: "GA_PSO" # "MILP" or "GA_PSO" or "MILP_GA_PSO"
 
-method: "GA_PSO"                # "MILP" hoặc "GA_PSO"
+# GLOBAL
+random_seed: 42
+budget_max: 1e9                # VNĐ
+M_max: 36                        # Max number of COWs
+default_setup_time_h: 0.5        # Used by MILP & GA-PSO
 
-damage_rate: 0.85
-population_sample_limit: 2000
-candidate_max: 1000
-M_max: 20
-budget_max: 1e19
-cover_ratio: 1.0
-seed: 42
-
-endurance_mode: "none"
-required_broadcast_time_h: 0
-
-default_R: 3000
-default_cost: 2e7
-default_setup_time_h: 0.5
-
-slope_threshold_deg: 50
-road_buffer_m: 500
-candidate_radius_m: 500
-candidate_per_bts: 3
-
-# =============================================================
-# THAM SỐ I/J FEATURE EXTRACTION
-# =============================================================
+# FEATURE EXTRACTION (feature_extraction_final.py)
 feature_extraction:
+  # --- Population raster ---
   pop_threshold: 3
+  pop_sample_max: 12000
+
+  # --- DBSCAN clustering (I points) ---
   eps_dbscan_m: 1200
   db_min_samples: 2
 
-  default_R: 3000
+  # --- Coverage ---
+  default_R: 3000                # R_I (used for I + J + cover.npy)
+
+  # --- I constraints ---
+  max_I: 1500
   infra_buffer_m: 1500
 
-  candidate_per_cluster: 30
-  candidate_jitter_m: 600
-  road_buffer_m: 5000
-  slope_threshold_deg: 35
-  candidate_samples_global: 10000
+  # --- J candidate generation ---
+  candidate_per_cluster: 12
+  road_buffer_m: 4000
+  slope_threshold_deg: 30
+  flood_depth_threshold_m: 0.5
 
-  max_I: 1500
+  # --- Sampling ---
+  global_sampling: "medium"      # low | medium | high
+  global_samples_low: 250
+  global_samples_medium: 500
+  global_samples_high: 1000
+
+  # --- J reduction ---
   max_J: 1200
+  target_J: 1000
+  overlap_keep_threshold: 0.05
+  min_uncov_pop_frac: 0.002
+  J_strategy: "balanced"
+
+  # --- Geometry ---
+  dedup_round: 5
+  road_samples_per_line: 2
+  extra_jitter_scales: [100, 300, 800]
+
   seed: 42
 
-# =============================================================
-# PHƯƠNG PHÁP 1 – MILP
-# =============================================================
+
+# MILP SOLVER (milp_solver.py)
 milp:
+
   solver:
-    engine: "gurobi"
-    time_limit: 1000
+    engine: "CBC"                # CBC | GUROBI
+    time_limit: 600              # seconds
 
-  weights:
-    w_time: 0.05
-    w_cost: 0.1
+  # Flood / geometry feasibility
+  flood_deploy_threshold_m: 0.5
+  neighbour_search_m: 500
 
-  simulation:
-    enable: true
-    scenario: "standard"
-    visualize: true
+  # (read directly by milp_solver.py)
+  # budget_max, M_max, default_setup_time_h inherited from GLOBAL
 
-# =============================================================
-# PHƯƠNG PHÁP 2 – GA-PSO LAI
-# =============================================================
+
+# GA-PSO SOLVER (ga_pso_solver.py)
 ga_pso:
+
   runs: 1
   pop_size: 100
   max_iter: 200
@@ -73,38 +76,37 @@ ga_pso:
   ga_period: 10
   elitism: 0.1
 
-  cost_per_km_factor: 0.2
+  # Constraints
+  budget_max: 1e9
+  flood_depth_threshold_m: 0.5
   max_slope_deg: 15.0
 
+  # Time & cost
+  default_setup_time_h: 0.5
+  cost_per_km_factor: 0.2
+
+  # Fitness weights (MINIMIZATION)
   weights:
     w_time: 0.2
     w_cost: 0.4
+    coverage_weight: 0.5
 
-  coverage_weight: 0.5
+  output_dir: "BTS_Restoration_Project/outputs/results_ga_pso"
 
-  # =========================================================
-  # NGƯỠNG NGẬP LỤT — ĐƯỢC THÊM MỚI ĐỂ KHẮC PHỤC LỖI
-  # =========================================================
-  flood_depth_threshold_m: 0.5     # NGƯỠNG CHUẨN: 0.5 m
 
-  output_dir: "outputs/results_ga_pso"
+# HYBRID MILP + GA-PSO (hybrid_milp_ga_pso.py)
+hybrid:
+  pop_size: 80
+  max_iter: 300
+  elite_n: 5
 
-  simulation:
-    enable: true
-    scenario: "dynamic_coverage"
-    visualize: true
+  # MILP refinement
+  milp_refine_time_limit_s: 60
+  milp_top_k_neighbors: 5
 
-# =============================================================
-# DỮ LIỆU ĐẦU VÀO — REQUIRED BY GA-PSO SOLVER
-# =============================================================
-data_paths:
-  J_sites: "data/processed/position_I_J/J_sites.csv"
-  cow_dataset: "data/processed/cow/cow_dataset.csv"
-  backup_power: "data/processed/backup_power/backup_power.csv"
-  failed_bts: "data/processed/damage_bts/failed_bts.csv"
+  # Fitness coefficients (used internally in hybrid)
+  alpha: 1.0
+  beta: 0.01
+  gamma: 0.000001
 
-  flood_tif: "data/processed/flood/flood_depth_combined_B_clean.tif"
-  roads_graphml: "data/processed/road/roads_flooded.graphml"
-
-  cow_to_J: "data/processed/travel_cost/cow_to_J_sites.csv"
-  backup_to_bts: "data/processed/travel_cost/backup_to_failed_bts.csv"
+  budget_max: 1e9

@@ -19,9 +19,7 @@ from math import radians, sin, cos, asin, sqrt
 import json
 import time
 
-# ---------------------
 # Utilities
-# ---------------------
 def haversine_km(lat1, lon1, lat2, lon2):
     """Haversine distance in kilometers."""
     R = 6371.0
@@ -41,9 +39,7 @@ def to_float(x, default=0.0):
     except Exception:
         return default
 
-# ---------------------
 # Data loaders
-# ---------------------
 def load_all_data(processed_dir: str):
     p = Path(processed_dir)
     # files (as described in prompt)
@@ -103,9 +99,7 @@ def load_all_data(processed_dir: str):
         "flood_ds": flood_ds
     }
 
-# ---------------------
 # Preprocessing: feasible assignments + cover matrices
-# ---------------------
 def build_cover_and_travel_maps(data, params):
     """
     Build:
@@ -290,9 +284,7 @@ def build_cover_and_travel_maps(data, params):
     }
     return preproc
 
-# ---------------------
 # MILP builder
-# ---------------------
 def build_milp_problem(preproc, data, params):
     """
     Build PuLP MILP problem containing variables + common constraints for lexicographic steps.
@@ -478,9 +470,7 @@ def build_coverage_expression(y, w_bts, j_ids, bts_ids, pop_map):
     )
     return cov_cow + cov_bts
 
-# ---------------------
 # Lexicographic solve orchestration
-# ---------------------
 def run_lexicographic_for_solver(data, preproc, params, solver_name="CBC", out_dir="./outputs/milp_runs"):
     """
     Runs lexicographic MILP as:
@@ -529,12 +519,15 @@ def run_lexicographic_for_solver(data, preproc, params, solver_name="CBC", out_d
     # solver objects
     time_limit = int(params.get("milp", {}).get("solver", {}).get("time_limit", 600))
     if solver_name.upper() == "GUROBI":
-        solver = pulp.GUROBI(
+        solver = pulp.GUROBI_CMD(
             timeLimit=time_limit,
             msg=True
         )
     else:
-        solver = pulp.PULP_CBC_CMD(msg=True, timeLimit=time_limit)
+        solver = pulp.PULP_CBC_CMD(
+            msg=True,
+            timeLimit=time_limit
+        )
 
     def build_cow_priority_expression(x, cow_ids, j_ids, priority_map):
         return pulp.lpSum(
@@ -542,7 +535,7 @@ def run_lexicographic_for_solver(data, preproc, params, solver_name="CBC", out_d
             for j in j_ids
         )
 
-    # ---------------- Step 1: maximize covered population ----------------
+    # Step 1: maximize covered population
     prob1, var_dict1 = build_milp_problem(preproc, data, params)
     x = var_dict1["x"];
     y = var_dict1["y"]
@@ -586,7 +579,7 @@ def run_lexicographic_for_solver(data, preproc, params, solver_name="CBC", out_d
 
     optimal_covered_pop = covered_pop
 
-    # ---------------- Step 2: minimize T_max subject to covered_pop >= optimal_covered_pop ----------------
+    # Step 2: minimize T_max subject to covered_pop >= optimal_covered_pop
     # prob2 = prob_base.copy()
     # prob2 += cov_expr >= optimal_covered_pop, "fix_covered_pop"
     prob2, var_dict2 = build_milp_problem(preproc, data, params)
@@ -615,7 +608,7 @@ def run_lexicographic_for_solver(data, preproc, params, solver_name="CBC", out_d
 
     optimal_T_max = T_max_val
 
-    # ---------------- Step 3: minimize total cost subject to coverage and T_max fixed ----------------
+    # Step 3: minimize total cost subject to coverage and T_max fixed
     # prob3 = prob_base.copy()
     # prob3 += cov_expr >= optimal_covered_pop, "fix_covered_pop"
     prob3, var_dict3 = build_milp_problem(preproc, data, params)
@@ -654,7 +647,7 @@ def run_lexicographic_for_solver(data, preproc, params, solver_name="CBC", out_d
 
             total_cost_terms.append(power_total_cost * z[g][bi])
 
-    # ---------------- Budget constraint ----------------
+    # Budget constraint
     budget_cost_terms = []
 
     # COW costs
@@ -806,25 +799,86 @@ def run_lexicographic_for_solver(data, preproc, params, solver_name="CBC", out_d
     out_dir_run.mkdir(parents=True, exist_ok=True)
     # assignments cow
     df_cow_assign = pd.DataFrame(assignments_cow, columns=["cow_id", "site_id"])
-    # enrich
-    df_cow_assign = df_cow_assign.merge(cows, left_on="cow_id", right_on="cow_id", how="left")
-    df_cow_assign["travel_cost_vnd"] = df_cow_assign.apply(lambda r: to_float(cow_travel_map.get((r["cow_id"], r["site_id"]), {}).get("travel_cost_vnd", 0.0)), axis=1)
-    df_cow_assign["travel_time_hr"] = df_cow_assign.apply(lambda r: to_float(cow_travel_map.get((r["cow_id"], r["site_id"]), {}).get("travel_time_hr", 0.0)), axis=1)
+
+    # enrich cow static info
+    df_cow_assign = df_cow_assign.merge(
+        cows,
+        on="cow_id",
+        how="left"
+    )
+
+    # travel cost & time
+    df_cow_assign["travel_cost_vnd"] = df_cow_assign.apply(
+        lambda r: to_float(
+            cow_travel_map.get((r["cow_id"], r["site_id"]), {}).get("travel_cost_vnd", 0.0)
+        ),
+        axis=1
+    )
+
+    df_cow_assign["travel_time_hr"] = df_cow_assign.apply(
+        lambda r: to_float(
+            cow_travel_map.get((r["cow_id"], r["site_id"]), {}).get("travel_time_hr", 0.0)
+        ),
+        axis=1
+    )
+
+    # setup time
     df_cow_assign["setup_time_h"] = float(params.get("default_setup_time_h", 0.5))
-    df_cow_assign["deployment_time_hr"] = df_cow_assign["travel_time_hr"] + df_cow_assign["setup_time_h"]
-    df_cow_assign.to_csv(out_dir_run / f"assignments_cow_{solver_name}.csv", index=False)
+
+    # total_time_hr
+    df_cow_assign["total_time_hr"] = (
+            df_cow_assign["travel_time_hr"] + df_cow_assign["setup_time_h"]
+    )
+
+    # total_cost_vnd = travel_cost_vnd + cost_vnd
+    df_cow_assign["total_cost_vnd"] = (
+            df_cow_assign["travel_cost_vnd"]
+            + df_cow_assign["cost_vnd"].apply(to_float)
+    )
+
+    df_cow_assign.to_csv(
+        out_dir_run / f"assignments_cow_{solver_name}.csv",
+        index=False
+    )
 
     # power assignments
     df_power_assign = pd.DataFrame(assignments_power, columns=["power_id", "bts_id"])
-    df_power_assign = df_power_assign.merge(backup_power, left_on="power_id", right_on="power_id", how="left")
-    df_power_assign["travel_cost_vnd"] = df_power_assign.apply(lambda r: to_float(power_travel_map.get((r["power_id"], r["bts_id"]), {}).get("total_cost_vnd", 0.0)), axis=1)
-    df_power_assign["operating_cost_vnd_24h"] = df_power_assign["cost_vnd_24h"]
-    df_power_assign["total_deployment_cost_vnd"] = (
+
+    df_power_assign = df_power_assign.merge(
+        backup_power,
+        on="power_id",
+        how="left"
+    )
+
+    # travel cost
+    df_power_assign["travel_cost_vnd"] = df_power_assign.apply(
+        lambda r: to_float(
+            power_travel_map.get((r["power_id"], r["bts_id"]), {}).get("total_cost_vnd", 0.0)
+        ),
+        axis=1
+    )
+
+    # operating cost
+    df_power_assign["operating_cost_vnd_24h"] = df_power_assign["cost_vnd_24h"].apply(to_float)
+
+    # total_cost_vnd
+    df_power_assign["total_cost_vnd"] = (
             df_power_assign["travel_cost_vnd"]
             + df_power_assign["operating_cost_vnd_24h"]
     )
-    df_power_assign["travel_time_hr"] = df_power_assign.apply(lambda r: to_float(power_travel_map.get((r["power_id"], r["bts_id"]), {}).get("total_time_hr", 0.0)), axis=1)
-    df_power_assign.to_csv(out_dir_run / f"assignments_power_{solver_name}.csv", index=False)
+
+    # total_time_hr
+    df_power_assign["total_time_hr"] = df_power_assign.apply(
+        lambda r: to_float(
+            power_travel_map.get((r["power_id"], r["bts_id"]), {}).get("total_time_hr", 0.0)
+        ),
+        axis=1
+    )
+
+    df_power_assign.to_csv(
+        out_dir_run / f"assignments_power_{solver_name}.csv",
+        index=False
+    )
 
     # summary json
     summary = {
@@ -844,9 +898,7 @@ def run_lexicographic_for_solver(data, preproc, params, solver_name="CBC", out_d
     print(f"Saved results to {out_dir_run}")
     return res
 
-# ---------------------
 # Main runner
-# ---------------------
 def main_solve(config_params: dict, processed_data_dir: str, outputs_dir: str = None):
     """
     config_params: dict with params (budget_max, default_setup_time_h, etc.)
@@ -863,12 +915,11 @@ def main_solve(config_params: dict, processed_data_dir: str, outputs_dir: str = 
 
     # Run with available solvers: try GUROBI, fallback to CBC
     solvers = []
-    try:
-        # check if PuLP has GUROBI_CMD callable (no guarantee)
-        _ = pulp.GUROBI_CMD
+    if pulp.GUROBI_CMD().available():
         solvers.append("GUROBI")
-    except Exception:
-        print("GUROBI_CMD unavailable via pulp; skipping GUROBI")
+    else:
+        print("GUROBI not available → fallback to CBC")
+
     solvers.append("CBC")
 
     results = []
