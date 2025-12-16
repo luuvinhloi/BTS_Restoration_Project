@@ -40,7 +40,7 @@ PATHS = {
     'cow_dataset': DATA_ROOT / "cow" / "cow_dataset.csv",
     'backup_power': DATA_ROOT / "backup_power" / "backup_power.csv",
     'failed_bts': DATA_ROOT / "damage_bts" / "failed_bts.csv",
-    'flood_tif': DATA_ROOT / "flood" / "flood_depth_combined_B_clean.tif",
+    'flood_tif': DATA_ROOT / "flood" / "flood_depth_combined_clean.tif",
     'roads_graph': DATA_ROOT / "road" / "roads_flooded.graphml",
     'cow_travel': DATA_ROOT / "travel_cost" / "cow_to_J_sites.csv",
     'power_travel': DATA_ROOT / "travel_cost" / "backup_to_failed_bts.csv"

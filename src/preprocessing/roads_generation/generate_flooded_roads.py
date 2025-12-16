@@ -29,7 +29,7 @@ DATA_DIR = PROJECT_ROOT / "data" / "processed"
 CLEAN_DIR = PROJECT_ROOT / "data" / "cleaned"
 
 ROADS_FILE = CLEAN_DIR / "roads_hue_clean.geojson"
-FLOOD_RASTER = DATA_DIR / "flood" / "flood_depth_combined_B_clean.tif"
+FLOOD_RASTER = DATA_DIR / "flood" / "flood_depth_combined_clean.tif"
 BOUNDARY_FILE = CLEAN_DIR / "hue_boundary_clean.geojson"
 
 OUT_GEOJSON = DATA_DIR / "road" / "roads_flooded.geojson"

@@ -50,7 +50,7 @@ def load_all_data(processed_dir: str):
     cow_travel = pd.read_csv(p / "travel_cost" / "cow_to_J_sites.csv")
     power_travel = pd.read_csv(p / "travel_cost" / "backup_to_failed_bts.csv")
     roads_graphml = p / "road" / "roads_flooded.graphml"
-    flood_raster = p / "flood" / "flood_depth_combined_B_clean.tif"
+    flood_raster = p / "flood" / "flood_depth_combined_clean.tif"
 
     # numeric coercions
     for df, cols in [

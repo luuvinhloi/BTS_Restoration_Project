@@ -62,7 +62,7 @@ CLEANED_DIR = DATA_DIR / "cleaned"
 DAMAGE_BTS_DIR = DATA_DIR / "processed" / "damage_bts"
 
 # flood tif default location (user-provided in prompt)
-FLOOD_TIF_DEFAULT = _project_root / "BTS_Restoration_Project" / "data" / "processed" / "flood" / "flood_depth_combined_B_clean.tif"
+FLOOD_TIF_DEFAULT = _project_root / "BTS_Restoration_Project" / "data" / "processed" / "flood" / "flood_depth_combined_clean.tif"
 
 # ---------------------- READ BTS & POP ----------------------
 def _read_bts_files(damage_bts_dir: Path = DAMAGE_BTS_DIR):

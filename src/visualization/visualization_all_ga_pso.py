@@ -21,8 +21,8 @@ import rasterio.features as rfeatures
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 # Flood raster
-RASTER_CLEAN = PROJECT_ROOT / "data/processed/flood/flood_depth_combined_B_clean.tif"
-RASTER_RAW   = PROJECT_ROOT / "data/processed/flood/flood_depth_combined_B.tif"
+RASTER_CLEAN = PROJECT_ROOT / "data/processed/flood/flood_depth_combined_clean.tif"
+RASTER_RAW   = PROJECT_ROOT / "data/processed/flood/flood_depth_combined.tif"
 WATER_POLY   = PROJECT_ROOT / "data/cleaned/water_hue_clean.geojson"
 BOUNDARY     = PROJECT_ROOT / "data/cleaned/hue_boundary_clean.geojson"
 

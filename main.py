@@ -14,7 +14,7 @@ from src.preprocessing.cow_generation.cow_dataset_generator import generate_cow_
 from src.preprocessing.backup_power.backup_power_generation import generate_backup_power_dataset
 
 # Stage 3: Generating Flood and Generating Flood road
-from src.preprocessing.flood_generation.flood_simulation_B import main as run_flood_simulation_B
+from src.preprocessing.flood_generation.flood_simulation import main as run_flood_simulation
 from src.preprocessing.roads_generation.generate_flooded_roads import main as generate_flooded_roads
 
 # Stage 4: Damage scenario generation
@@ -24,7 +24,7 @@ from src.preprocessing.damage_bts.generate_damage_scenario import generate_bts_d
 from src.preprocessing.I_J_generation.feature_extraction_final import main as feature_extraction_final
 
 # Calculate travel time and costs
-from src.preprocessing.travel_cost.compute_travel_costs_A import (
+from src.preprocessing.travel_cost.compute_travel_costs import (
     compute_cow_travel_matrix,
     compute_backup_travel_matrix
 )
@@ -49,8 +49,7 @@ from src.compute_pop_cover.compute_population_coverage_hybrid import (
 
 # Stage 8: Visualization
 from src.visualization.simulation_scenario import run_simulation_scenario
-from src.visualization.flood_visualization_A import run_flood_map_visualization_A
-from src.visualization.flood_visualization_B import run_flood_map_visualization_B
+from src.visualization.flood_visualization import run_flood_map_visualization
 from src.visualization.visualization_all import run_visualization_combined
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -74,8 +73,7 @@ def run_pipeline(config_path):
     # )
 
     print("Stage 3: Generating Flood and Generating Flood road...")
-    # run_flood_simulation_A()
-    # run_flood_simulation_B()
+    # run_flood_simulation()
 
     print("Generating Flood roads...")
     # generate_flooded_roads()
@@ -87,7 +85,7 @@ def run_pipeline(config_path):
     print("Stage 4: Generating damage scenario...")
     # generate_bts_damage_dataset(
     #     bts_csv_path=str(PROJECT_ROOT / "data/processed/bts_network/bts_ga.csv"),
-    #     flood_tif_path=str(PROJECT_ROOT / "data/processed/flood/flood_depth_combined_B_clean.tif"),
+    #     flood_tif_path=str(PROJECT_ROOT / "data/processed/flood/flood_depth_combined_clean.tif"),
     #     output_dir=str(PROJECT_ROOT / "data/processed/damage_bts"),
     #     active_rate=0.20,
     #     power_outage_rate=0.15,

@@ -41,7 +41,7 @@ DEFAULT_CONFIG = {
         "cow_to_J": str(PROJECT_ROOT / "data/processed/travel_cost/cow_to_J_sites.csv"),
         "backup_to_bts": str(PROJECT_ROOT / "data/processed/travel_cost/backup_to_failed_bts.csv"),
         "roads_graphml": str(PROJECT_ROOT / "data/processed/road/roads_flooded.graphml"),
-        "flood_tif": str(PROJECT_ROOT / "data/processed/flood/flood_depth_combined_B_clean.tif"),
+        "flood_tif": str(PROJECT_ROOT / "data/processed/flood/flood_depth_combined_clean.tif"),
     },
     "ga_pso": {
         "runs": 1,

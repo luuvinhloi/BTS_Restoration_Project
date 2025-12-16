@@ -9,7 +9,7 @@ YÊU CẦU:
 
 DỮ LIỆU ĐẦU VÀO:
 - BTS CSV: BTS_Restoration_Project/data/processed/bts_network/bts_ga.csv
-- Flood Raster (TIF): BTS_Restoration_Project/data/processed/flood/flood_depth_combined_B_clean.tif
+- Flood Raster (TIF): BTS_Restoration_Project/data/processed/flood/flood_depth_combined_clean.tif
 
 DỮ LIỆU ĐẦU RA:
 - active_bts.geojson / csv
@@ -136,7 +136,7 @@ if __name__ == "__main__":
     parser.add_argument("--bts_csv", required=False,
                         default="BTS_Restoration_Project/data/processed/bts_network/bts_ga.csv")
     parser.add_argument("--flood_tif", required=False,
-                        default="BTS_Restoration_Project/data/processed/flood/flood_depth_combined_B_clean.tif")
+                        default="BTS_Restoration_Project/data/processed/flood/flood_depth_combined_clean.tif")
     parser.add_argument("--out_dir", required=False,
                         default="BTS_Restoration_Project/data/processed/bts_damage")
 
