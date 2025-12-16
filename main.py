@@ -47,10 +47,17 @@ from src.compute_pop_cover.compute_population_coverage_hybrid import (
     main_compute_all as compute_coverage_hybrid
 )
 
-# Stage 8: Visualization
-from src.visualization.simulation_scenario import run_simulation_scenario
-from src.visualization.flood_visualization import run_flood_map_visualization
-from src.visualization.visualization_all import run_visualization_combined
+# Stage 8: Simulation
+from src.simulation.spatial.spatial_flood_map import run as run_spatial_flood_map
+from src.simulation.spatial.spatial_bts_status import run as run_spatial_bts_status
+from src.simulation.spatial.spatial_deployment_map import run as run_spatial_deployment_map
+from src.simulation.spatial.spatial_routes_map import run as run_spatial_routes_map
+
+from src.simulation.coverage.coverage_population_map import run as run_coverage_population_map
+from src.simulation.coverage.coverage_population_stats import run as run_coverage_population_stats
+
+from src.simulation.comparison.method_comparison_plots import run as run_method_comparison
+
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 
@@ -172,18 +179,35 @@ def run_pipeline(config_path):
         print("Population coverage computation failed:")
         print(e)
 
-    #  Visualization
-    print("Stage 8: Visualization")
-    # if method == "MILP":
-    #     if cfg["milp"]["simulation"]["enable"]:
-    #         run_simulation_scenario("MILP")
-    #
-    # elif method == "GA_PSO":
-    #     if cfg["ga_pso"]["simulation"]["enable"]:
-    #         run_simulation_scenario("GA_PSO")
+    #  Simulation
+    print("Stage 8: Simulation...")
+    try:
+        print("8.1: Spatial flood map...")
+        run_spatial_flood_map()
 
-    # Compute population coverage report
-    # run_map_visualization_all()
+        print("8.2: Spatial BTS status map...")
+        run_spatial_bts_status()
+
+        print("8.3: Spatial deployment & coverage maps...")
+        run_spatial_deployment_map()
+
+        print("8.4: Spatial deployment routes...")
+        run_spatial_routes_map()
+
+        print("8.5: Population coverage maps...")
+        run_coverage_population_map()
+
+        print("8.6: Population coverage statistics...")
+        run_coverage_population_stats()
+
+        print("8.7: Method comparison analysis...")
+        run_method_comparison()
+
+        print("Stage 8 completed successfully.")
+
+    except Exception as e:
+        print("[ERROR] Simulation stage failed:")
+        print(e)
 
     print("Pipeline finished successfully.")
 

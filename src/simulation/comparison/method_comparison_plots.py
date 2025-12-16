@@ -17,9 +17,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 
-# ======================================================
 # PATH CONFIG
-# ======================================================
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 REPORT_PATHS = {
@@ -31,9 +29,7 @@ REPORT_PATHS = {
 OUTPUT_DIR = PROJECT_ROOT / "outputs/simulation/comparison"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# ======================================================
 # LOAD REPORTS
-# ======================================================
 def load_reports():
     reports = {}
     for name, path in REPORT_PATHS.items():
@@ -41,9 +37,7 @@ def load_reports():
             reports[name] = json.load(f)
     return reports
 
-# ======================================================
-# FIGURE 4.8 – COVERAGE & RESOURCE COMPARISON
-# ======================================================
+# COVERAGE & RESOURCE COMPARISON
 def plot_coverage_comparison(reports):
     methods = list(reports.keys())
     x = np.arange(len(methods))
@@ -69,7 +63,7 @@ def plot_coverage_comparison(reports):
     ax.grid(axis="y", linestyle="--", alpha=0.4)
     ax.legend(loc="upper left", frameon=True)
 
-    # ---- Annotate values on bars ----
+    # Annotate values on bars
     def annotate(bars, fmt="{:.0f}"):
         for b in bars:
             h = b.get_height()
@@ -90,9 +84,7 @@ def plot_coverage_comparison(reports):
     plt.savefig(OUTPUT_DIR / "coverage_comparison.png", dpi=300)
     plt.close()
 
-# ======================================================
-# FIGURE 4.9 – COST & TIME COMPARISON
-# ======================================================
+# COST & TIME COMPARISON
 def plot_cost_time_comparison(reports):
     methods = list(reports.keys())
     x = np.arange(len(methods))
@@ -121,14 +113,14 @@ def plot_cost_time_comparison(reports):
 
     ax1.set_title("Figure: Cost & Time Comparison", fontsize=14)
 
-    # ---- Legend (top-right) ----
+    # Legend (top-right)
     legend_elements = [
         Patch(facecolor="#9b59b6", label="Total deployment cost (million VND)"),
         Patch(facecolor="#34495e", label="Max deployment time (hours)")
     ]
     ax1.legend(handles=legend_elements, loc="upper right", frameon=True)
 
-    # ---- Annotate values ----
+    # Annotate values
     for b in bars_cost:
         h = b.get_height()
         ax1.text(
@@ -155,9 +147,7 @@ def plot_cost_time_comparison(reports):
     plt.savefig(OUTPUT_DIR / "cost_time_comparison.png", dpi=300)
     plt.close()
 
-# ======================================================
 # MAIN
-# ======================================================
 def run():
     print("\nMethod Comparison Simulation")
     reports = load_reports()
