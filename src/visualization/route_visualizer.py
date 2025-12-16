@@ -52,43 +52,84 @@ def load_graph(graphml_path):
 # 2. Extract geometry from path
 # ======================================================================
 
+# def extract_route_geometry(G, path):
+#     segments = []
+#
+#     for i in range(len(path) - 1):
+#         u, v = path[i], path[i + 1]
+#
+#         if v not in G[u]:
+#             print(f"[WARN] Missing edge {u} → {v}")
+#             continue
+#
+#         edge_data = G[u][v]
+#
+#         # If multigraph
+#         if isinstance(edge_data, dict) and len(edge_data) > 0:
+#             e = edge_data[list(edge_data.keys())[0]]
+#         else:
+#             e = edge_data
+#
+#         geom = e.get("geometry")
+#
+#         if geom is None:
+#             # fallback use straight line
+#             p1 = (G.nodes[u]["x"], G.nodes[u]["y"])
+#             p2 = (G.nodes[v]["x"], G.nodes[v]["y"])
+#             segments.append(LineString([p1, p2]))
+#         else:
+#             try:
+#                 from shapely import wkt
+#                 segments.append(wkt.loads(geom))
+#             except:
+#                 pass
+#
+#     if not segments:
+#         return None
+#
+#     merged = linemerge(MultiLineString(segments))
+#     return merged
+
 def extract_route_geometry(G, path):
     segments = []
 
     for i in range(len(path) - 1):
         u, v = path[i], path[i + 1]
 
-        if v not in G[u]:
+        if not G.has_edge(u, v):
             print(f"[WARN] Missing edge {u} → {v}")
             continue
 
-        edge_data = G[u][v]
+        edge_data = G.get_edge_data(u, v)
 
-        # If multigraph
-        if isinstance(edge_data, dict) and len(edge_data) > 0:
-            e = edge_data[list(edge_data.keys())[0]]
-        else:
-            e = edge_data
+        # --------------------------------------------------
+        # CASE 1: edge_data là dict thuộc tính
+        # --------------------------------------------------
+        geom = None
+        if isinstance(edge_data, dict):
+            geom = edge_data.get("geometry")
 
-        geom = e.get("geometry")
-
+        # --------------------------------------------------
+        # CASE 2: Không có geometry → fallback line
+        # --------------------------------------------------
         if geom is None:
-            # fallback use straight line
-            p1 = (G.nodes[u]["x"], G.nodes[u]["y"])
-            p2 = (G.nodes[v]["x"], G.nodes[v]["y"])
-            segments.append(LineString([p1, p2]))
+            try:
+                p1 = (G.nodes[u]["x"], G.nodes[u]["y"])
+                p2 = (G.nodes[v]["x"], G.nodes[v]["y"])
+                segments.append(LineString([p1, p2]))
+            except KeyError:
+                continue
         else:
             try:
                 from shapely import wkt
                 segments.append(wkt.loads(geom))
-            except:
-                pass
+            except Exception:
+                continue
 
     if not segments:
         return None
 
-    merged = linemerge(MultiLineString(segments))
-    return merged
+    return linemerge(MultiLineString(segments))
 
 
 # ======================================================================
@@ -221,6 +262,10 @@ def simulate_routes(graphml_path, cow_assign_csv, cow_lookup_csv,
         path = nx.shortest_path(G, start_node, end_node, weight="length_m")
         geom = extract_route_geometry(G, path)
 
+        geom = extract_route_geometry(G, path)
+        if geom is None:
+            continue
+
         feature = geometry_to_feature(geom, {
             "route_type": "COW",
             "id": cow,
@@ -317,14 +362,16 @@ def simulate_routes(graphml_path, cow_assign_csv, cow_lookup_csv,
 # ======================================================================
 
 if __name__ == "__main__":
-    BASE = Path("BTS_Restoration_Project")
+    PROJECT_ROOT = Path(__file__).resolve().parents[2]
+    # src/visualization/route_visualizer.py → parents[2] = BTS_Restoration_Project
 
     simulate_routes(
-        graphml_path=BASE / "data/processed/road/roads_flooded.graphml",
-        cow_assign_csv=BASE / "outputs/results_ga_pso/solution_cow_assignments.csv",
-        cow_lookup_csv=BASE / "data/processed/travel_cost/cow_to_J_sites.csv",
-        power_assign_csv=BASE / "outputs/results_ga_pso/solution_power_assignments.csv",
-        power_lookup_csv=BASE / "data/processed/travel_cost/backup_to_failed_bts.csv"
+        graphml_path=PROJECT_ROOT / "data/processed/road/roads_flooded.graphml",
+        cow_assign_csv=PROJECT_ROOT / "outputs/results_ga_pso/solution_cow_assignments.csv",
+        cow_lookup_csv=PROJECT_ROOT / "data/processed/travel_cost/cow_to_J_sites.csv",
+        power_assign_csv=PROJECT_ROOT / "outputs/results_ga_pso/solution_power_assignments.csv",
+        power_lookup_csv=PROJECT_ROOT / "data/processed/travel_cost/backup_to_failed_bts.csv"
     )
 
     print("\n[INFO] Route simulation completed.")
+
