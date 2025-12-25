@@ -34,6 +34,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 # Configuration / defaults
 DEFAULT_CONFIG = {
     "data_paths": {
+        "I_points": str(PROJECT_ROOT / "data/processed/position_I_J/I_points.csv"),
         "J_sites": str(PROJECT_ROOT / "data/processed/position_I_J/J_sites.csv"),
         "cow_dataset": str(PROJECT_ROOT / "data/processed/cow/cow_dataset.csv"),
         "backup_power": str(PROJECT_ROOT / "data/processed/backup_power/backup_power.csv"),
@@ -57,14 +58,14 @@ DEFAULT_CONFIG = {
             "w_cost": 0.4,
             "coverage_weight": 0.5
         },
-        "budget_max": 1e19,
+        "budget_max": 1e9,
         "flood_depth_threshold_m": 0.5,
         "output_dir": "BTS_Restoration_Project/outputs/results_ga_pso"
     },
     "random_seed": 42
 }
 
-# CONFIG MERGE (FIX KEYERROR: data_paths
+# CONFIG MERGE
 def merge_with_default(cfg: Dict) -> Dict:
     merged = deepcopy(DEFAULT_CONFIG)
     for k, v in cfg.items():
@@ -92,6 +93,7 @@ class DataModel:
         dp = cfg["data_paths"]
         # Load CSVs
         self.J = pd.read_csv(dp["J_sites"])
+        self.I = pd.read_csv(dp["I_points"])
         self.cow = pd.read_csv(dp["cow_dataset"])
         self.backups = pd.read_csv(dp["backup_power"])
         self.failed_bts = pd.read_csv(dp["failed_bts"])
@@ -242,33 +244,48 @@ class GA_PSOSolver:
         return m
 
     def _build_cover_cow(self):
-        # cover if cow coverage_radius >= distance from cow base to J (but travel is precomputed)
         cover = {}
-        # build cow base coords
-        cow_coords = {row["cow_id"]: (row["lat"], row["lon"], row["coverage_radius_m"]) for _, row in self.dm.cow.iterrows()}
+
+        cow_coords = {
+            row["cow_id"]: (row["lat"], row["lon"], row["coverage_radius_m"])
+            for _, row in self.dm.cow.iterrows()
+        }
+
         for c_id, (clat, clon, cov_m) in cow_coords.items():
             cover[c_id] = {}
+
             for _, jrow in self.dm.J.iterrows():
                 j_id = jrow["site_id"]
-                d_km = haversine_km(clat, clon, float(jrow["latitude"]), float(jrow["longitude"]))
-                cover[c_id][j_id] = (d_km*1000.0) <= cov_m  # convert km->m
+
+                d_km = haversine_km(
+                    clat, clon,
+                    float(jrow["latitude"]),
+                    float(jrow["longitude"])
+                )
+
+                cover[c_id][j_id] = (d_km * 1000.0) <= cov_m
+
         return cover
 
     def _build_cover_bts(self):
         cover = {}
+
         for _, brow in self.dm.failed_bts.iterrows():
             b_id = brow["site_id"]
             cover[b_id] = {}
+
             for _, jrow in self.dm.J.iterrows():
                 j_id = jrow["site_id"]
+
                 d_km = haversine_km(
                     float(brow["latitude"]),
                     float(brow["longitude"]),
                     float(jrow["latitude"]),
                     float(jrow["longitude"])
                 )
-                # Using coverage radius of BTS
-                cover[b_id][j_id] = (d_km*1000.0) <= float(brow["coverage_radius_m"])
+
+                cover[b_id][j_id] = (d_km * 1000.0) <= float(brow["coverage_radius_m"])
+
         return cover
 
     # Initialization
@@ -612,7 +629,7 @@ class GA_PSOSolver:
         return child
 
     # Main optimize loop
-    def run(self):
+    def run_ga_pso(self):
         N = int(self.params["pop_size"])
         pop = self._init_population(N)
         # evaluate initial
@@ -685,35 +702,51 @@ class GA_PSOSolver:
         setup_time = float(self.params.get("default_setup_time_h", 0.5))
 
         for cow_id, site_id in sol.cow_assign.items():
-            rec = {
+
+            # Xuất kết quả COW ĐƯỢC TRIỂN KHAI
+            if site_id is None:
+                continue
+
+            key = (cow_id, site_id)
+            if key not in self.cow_travel_map:
+                continue
+
+            tinfo = self.cow_travel_map[key]
+
+            crow = self.dm.cow[self.dm.cow["cow_id"] == cow_id].iloc[0]
+
+            distance_km = float(tinfo["distance_km"])
+            travel_time_hr = float(tinfo["travel_time_hr"])
+            travel_cost_vnd = float(tinfo["travel_cost_vnd"])
+            cost_vnd = float(crow.get("cost_vnd", 0.0))
+            total_time_hr = travel_time_hr + setup_time
+            total_cost_vnd = travel_cost_vnd + cost_vnd
+
+            cow_rows.append({
                 "cow_id": cow_id,
-                "site_id": site_id if site_id is not None else ""
-            }
+                "site_id": site_id,
+                "distance_km": distance_km,
+                "travel_time_hr": travel_time_hr,
+                "total_time_hr": total_time_hr,
+                "travel_cost_vnd": travel_cost_vnd,
+                "cost_vnd": cost_vnd,
+                "total_cost_vnd": total_cost_vnd
+            })
 
-            if site_id and (cow_id, site_id) in self.cow_travel_map:
-                tinfo = self.cow_travel_map[(cow_id, site_id)]
+        df_cow_out = pd.DataFrame(
+            cow_rows,
+            columns=[
+                "cow_id",
+                "site_id",
+                "distance_km",
+                "travel_time_hr",
+                "total_time_hr",
+                "travel_cost_vnd",
+                "cost_vnd",
+                "total_cost_vnd"
+            ]
+        )
 
-                # travel info
-                rec["distance_km"] = tinfo.get("distance_km", 0.0)
-                rec["travel_time_hr"] = tinfo.get("travel_time_hr", 0.0)
-                rec["travel_cost_vnd"] = tinfo.get("travel_cost_vnd", 0.0)
-
-                # total time
-                rec["total_time_hr"] = rec["travel_time_hr"] + setup_time
-
-                # cow fixed cost
-                crow = self.dm.cow[self.dm.cow["cow_id"] == cow_id]
-                if not crow.empty:
-                    rec["cost_vnd"] = float(crow.iloc[0].get("cost_vnd", 0.0))
-                else:
-                    rec["cost_vnd"] = 0.0
-
-                # total cost
-                rec["total_cost_vnd"] = rec["travel_cost_vnd"] + rec["cost_vnd"]
-
-            cow_rows.append(rec)
-
-        df_cow_out = pd.DataFrame(cow_rows)
         df_cow_out.to_csv(
             self.output_dir / "solution_cow_assignments.csv",
             index=False
@@ -723,33 +756,48 @@ class GA_PSOSolver:
         power_rows = []
 
         for bts_id, power_id in sol.power_assign.items():
-            rec = {
+
+            # Xuất kết quả BTS ĐƯỢC CẤP NGUỒN
+            if power_id is None:
+                continue
+
+            key = (power_id, bts_id)
+            if key not in self.power_travel_map:
+                continue
+
+            pinfo = self.power_travel_map[key]
+
+            total_time_hr = float(pinfo["total_time_hr"])
+
+            # travel_cost_vnd = chi phí di chuyển
+            travel_cost_vnd = float(pinfo["total_cost_vnd"])
+
+            prow = self.dm.backups[self.dm.backups["power_id"] == power_id].iloc[0]
+            operating_cost_vnd_24h = float(prow.get("cost_vnd_24h", 0.0))
+
+            total_cost_vnd = travel_cost_vnd + operating_cost_vnd_24h
+
+            power_rows.append({
                 "bts_id": bts_id,
-                "power_id": power_id if power_id is not None else ""
-            }
+                "power_id": power_id,
+                "total_time_hr": total_time_hr,
+                "operating_cost_vnd_24h": operating_cost_vnd_24h,
+                "travel_cost_vnd": travel_cost_vnd,
+                "total_cost_vnd": total_cost_vnd
+            })
 
-            if power_id and (power_id, bts_id) in self.power_travel_map:
-                pinfo = self.power_travel_map[(power_id, bts_id)]
+        df_power_out = pd.DataFrame(
+            power_rows,
+            columns=[
+                "bts_id",
+                "power_id",
+                "total_time_hr",
+                "operating_cost_vnd_24h",
+                "travel_cost_vnd",
+                "total_cost_vnd"
+            ]
+        )
 
-                # distance & time
-                rec["distance_km"] = pinfo.get("distance_km", 0.0)
-                rec["total_time_hr"] = pinfo.get("total_time_hr", 0.0)
-
-                rec["travel_cost_vnd"] = pinfo.get("total_cost_vnd", 0.0)
-
-                prow = self.dm.backups[self.dm.backups["power_id"] == power_id]
-                if not prow.empty:
-                    rec["operating_cost_vnd_24h"] = float(prow.iloc[0].get("cost_vnd_24h", 0.0))
-                else:
-                    rec["operating_cost_vnd_24h"] = 0.0
-
-                rec["total_cost_vnd"] = (
-                        rec["travel_cost_vnd"] + rec["operating_cost_vnd_24h"]
-                )
-
-            power_rows.append(rec)
-
-        df_power_out = pd.DataFrame(power_rows)
         df_power_out.to_csv(
             self.output_dir / "solution_power_assignments.csv",
             index=False
@@ -776,7 +824,7 @@ def run_from_config(config: Dict = None):
         cfg = merge_with_default(config)
 
     solver = GA_PSOSolver(cfg)
-    best = solver.run()
+    best = solver.run_ga_pso()
     return best
 
 if __name__ == "__main__":

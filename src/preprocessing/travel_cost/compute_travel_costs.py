@@ -449,7 +449,7 @@ def compute_backup_travel_matrix(
                     "bts_lon": bts.get(lon_col),
                     "distance_km": total_distance_m / 1000.0,
                     "total_time_hr": total_time,
-                    "total_travel_cost_vnd": total_cost,
+                    "travel_cost_vnd": total_cost,
                     "optimize_for": optimize_for
                 })
             except Exception as e:
@@ -467,7 +467,7 @@ def compute_backup_travel_matrix(
                     "bts_lon": bts.get(lon_col),
                     "distance_km": fallback_dist_km,
                     "total_time_hr": fallback_time,
-                    "total_travel_cost_vnd": fallback_cost,
+                    "travel_cost_vnd": fallback_cost,
                     "optimize_for": optimize_for,
                     "note": f"fallback_no_path: {str(e)}"
                 })

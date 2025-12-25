@@ -134,7 +134,7 @@ def build_cover_and_travel_maps(data, params):
         power_travel_map[(str(row["power_id"]), str(row["bts_id"]))] = {
             "distance_km": to_float(row.get("distance_km", 0.0)),
             "total_time_hr": to_float(row.get("total_time_hr", 0.0)),
-            "total_cost_vnd": to_float(row.get("total_cost_vnd", 0.0)),
+            "travel_cost_vnd": to_float(row.get("travel_cost_vnd", 0.0)),
             "note": row.get("note", "")
         }
 
@@ -165,7 +165,7 @@ def build_cover_and_travel_maps(data, params):
         j_sites["flood_depth_m"] = 0.0
 
     # For J infeasible, try to find nearest feasible J within radius find_neighbour_search_m
-    # We'll build mapping j -> alternative_j if available
+    # build mapping j -> alternative_j if available
     j_alternative = {}
     for idx, row in j_sites.iterrows():
         if row["feasible_deploy"]:
@@ -639,7 +639,7 @@ def run_lexicographic_for_solver(data, preproc, params, solver_name="CBC", out_d
         )
         for bi in bts_ids:
             power_travel_cost = to_float(
-                power_travel_map.get((g, bi), {}).get("total_cost_vnd", 0.0)
+                power_travel_map.get((g, bi), {}).get("travel_cost_vnd", 0.0)
             )
 
             # Tổng chi phí triển khai nguồn điện dự phòng
@@ -667,7 +667,7 @@ def run_lexicographic_for_solver(data, preproc, params, solver_name="CBC", out_d
         )
         for bi in bts_ids:
             power_travel_cost = to_float(
-                power_travel_map.get((g, bi), {}).get("total_cost_vnd", 0.0)
+                power_travel_map.get((g, bi), {}).get("travel_cost_vnd", 0.0)
             )
             budget_cost_terms.append(
                 (power_operating_cost + power_travel_cost) * z[g][bi]
@@ -767,7 +767,7 @@ def run_lexicographic_for_solver(data, preproc, params, solver_name="CBC", out_d
             power_lookup.get(g, {}).get("cost_vnd_24h", 0.0)
         )
         power_travel_cost = to_float(
-            power_travel_map.get((g, bi), {}).get("total_cost_vnd", 0.0)
+            power_travel_map.get((g, bi), {}).get("travel_cost_vnd", 0.0)
         )
 
         total_fixed_cost += power_operating_cost
@@ -800,41 +800,70 @@ def run_lexicographic_for_solver(data, preproc, params, solver_name="CBC", out_d
     # assignments cow
     df_cow_assign = pd.DataFrame(assignments_cow, columns=["cow_id", "site_id"])
 
-    # enrich cow static info
+    # merge cow static attributes
     df_cow_assign = df_cow_assign.merge(
-        cows,
+        cows[[
+            "cow_id", "base_id", "base_name", "type",
+            "lat", "lon",
+            "coverage_radius_m", "power_kw",
+            "speed_kmh", "endurance_hr",
+            "cost_vnd"
+        ]],
         on="cow_id",
         how="left"
     )
 
-    # travel cost & time
-    df_cow_assign["travel_cost_vnd"] = df_cow_assign.apply(
-        lambda r: to_float(
-            cow_travel_map.get((r["cow_id"], r["site_id"]), {}).get("travel_cost_vnd", 0.0)
-        ),
-        axis=1
-    )
+    # assigned_region = base_name
+    df_cow_assign["assigned_region"] = df_cow_assign["base_name"]
 
+    # travel time & cost
     df_cow_assign["travel_time_hr"] = df_cow_assign.apply(
-        lambda r: to_float(
+        lambda r: float(
             cow_travel_map.get((r["cow_id"], r["site_id"]), {}).get("travel_time_hr", 0.0)
         ),
         axis=1
     )
+    # Làm tròn travel_time_hr đến 10 chữ số thập phân
+    df_cow_assign["travel_time_hr"] = df_cow_assign["travel_time_hr"].round(10)
+
+    df_cow_assign["travel_cost_vnd"] = df_cow_assign.apply(
+        lambda r: float(
+            cow_travel_map.get((r["cow_id"], r["site_id"]), {}).get("travel_cost_vnd", 0.0)
+        ),
+        axis=1
+    )
+    # Làm tròn travel_cost_vnd đến 8 chữ số thập phân
+    df_cow_assign["travel_cost_vnd"] = df_cow_assign["travel_cost_vnd"].round(8)
 
     # setup time
     df_cow_assign["setup_time_h"] = float(params.get("default_setup_time_h", 0.5))
 
-    # total_time_hr
+    # total time
     df_cow_assign["total_time_hr"] = (
             df_cow_assign["travel_time_hr"] + df_cow_assign["setup_time_h"]
     )
+    # Làm tròn total_time_hr đến 10 chữ số thập phân
+    df_cow_assign["total_time_hr"] = df_cow_assign["total_time_hr"].round(10)
 
     # total_cost_vnd = travel_cost_vnd + cost_vnd
     df_cow_assign["total_cost_vnd"] = (
-            df_cow_assign["travel_cost_vnd"]
-            + df_cow_assign["cost_vnd"].apply(to_float)
+            df_cow_assign["cost_vnd"].astype(float)
+            + df_cow_assign["travel_cost_vnd"]
     )
+    # Làm tròn total_cost_vnd đến 8 chữ số thập phân
+    df_cow_assign["total_cost_vnd"] = df_cow_assign["total_cost_vnd"].round(8)
+
+    df_cow_assign = df_cow_assign[[
+        "cow_id", "site_id",
+        "base_id", "base_name", "type",
+        "lat", "lon",
+        "coverage_radius_m", "power_kw",
+        "speed_kmh", "endurance_hr",
+        "cost_vnd",
+        "assigned_region",
+        "total_cost_vnd",
+        "travel_time_hr", "setup_time_h", "total_time_hr"
+    ]]
 
     df_cow_assign.to_csv(
         out_dir_run / f"assignments_cow_{solver_name}.csv",
@@ -845,35 +874,51 @@ def run_lexicographic_for_solver(data, preproc, params, solver_name="CBC", out_d
     df_power_assign = pd.DataFrame(assignments_power, columns=["power_id", "bts_id"])
 
     df_power_assign = df_power_assign.merge(
-        backup_power,
+        backup_power[[
+            "power_id", "base_id", "base_name",
+            "lat", "lon",
+            "type", "model",
+            "runtime_h", "cost_vnd_24h", "resource_amount"
+        ]],
         on="power_id",
         how="left"
     )
 
-    # travel cost
-    df_power_assign["travel_cost_vnd"] = df_power_assign.apply(
-        lambda r: to_float(
-            power_travel_map.get((r["power_id"], r["bts_id"]), {}).get("total_cost_vnd", 0.0)
-        ),
-        axis=1
-    )
-
-    # operating cost
-    df_power_assign["operating_cost_vnd_24h"] = df_power_assign["cost_vnd_24h"].apply(to_float)
-
-    # total_cost_vnd
-    df_power_assign["total_cost_vnd"] = (
-            df_power_assign["travel_cost_vnd"]
-            + df_power_assign["operating_cost_vnd_24h"]
-    )
-
     # total_time_hr
     df_power_assign["total_time_hr"] = df_power_assign.apply(
-        lambda r: to_float(
+        lambda r: float(
             power_travel_map.get((r["power_id"], r["bts_id"]), {}).get("total_time_hr", 0.0)
         ),
         axis=1
     )
+    # Làm tròn total_time_hr đến 10 chữ số thập phân
+    df_power_assign["total_time_hr"] = df_power_assign["total_time_hr"].round(10)
+
+    df_power_assign["travel_cost_vnd"] = df_power_assign.apply(
+        lambda r: float(
+            power_travel_map.get(
+                (r["power_id"], r["bts_id"]), {}
+            ).get("travel_cost_vnd", 0.0)
+        ),
+        axis=1
+    )
+
+    # total_cost_vnd = travel_cost_vnd + cost_vnd_24h
+    df_power_assign["total_cost_vnd"] = (
+            df_power_assign["travel_cost_vnd"]
+            + df_power_assign["cost_vnd_24h"].astype(float)
+    )
+    # Làm tròn total_cost_vnd đến 8 chữ số thập phân
+    df_power_assign["total_cost_vnd"] = df_power_assign["total_cost_vnd"].round(8)
+
+    df_power_assign = df_power_assign[[
+        "base_id", "power_id", "bts_id",
+        "lat", "lon",
+        "base_name",
+        "type", "model",
+        "runtime_h", "cost_vnd_24h", "resource_amount",
+        "total_cost_vnd", "total_time_hr"
+    ]]
 
     df_power_assign.to_csv(
         out_dir_run / f"assignments_power_{solver_name}.csv",

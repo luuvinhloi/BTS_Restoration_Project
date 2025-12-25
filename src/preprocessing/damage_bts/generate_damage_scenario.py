@@ -56,9 +56,9 @@ def generate_bts_damage_dataset(
         bts_csv_path: str,
         flood_tif_path: str,
         output_dir: str,
-        active_rate=0.20,
-        power_outage_rate=0.15,
-        failed_rate=0.65,
+        active_rate=0.10,
+        power_outage_rate=0.20,
+        failed_rate=0.70,
         seed=42
 ):
     np.random.seed(seed)
@@ -110,18 +110,18 @@ def generate_bts_damage_dataset(
     output_path.mkdir(parents=True, exist_ok=True)
 
     # Export ACTIVE
-    active_bts.to_file(output_path / "active_bts.geojson", driver="GeoJSON")
-    active_bts.drop(columns=["geometry"]).to_csv(output_path / "active_bts.csv", index=False)
+    active_bts.to_file(output_path / "active_bts_B.geojson", driver="GeoJSON")
+    active_bts.drop(columns=["geometry"]).to_csv(output_path / "active_bts_B.csv", index=False)
 
     # Export FAILED (power_outage + failed)
-    failed_all.to_file(output_path / "failed_bts.geojson", driver="GeoJSON")
-    failed_all.drop(columns=["geometry"]).to_csv(output_path / "failed_bts.csv", index=False)
+    failed_all.to_file(output_path / "failed_bts_B.geojson", driver="GeoJSON")
+    failed_all.drop(columns=["geometry"]).to_csv(output_path / "failed_bts_B.csv", index=False)
 
     print("\n===== DAMAGE SCENARIO GENERATED SUCCESSFULLY =====")
     print(f"Total BTS: {total}")
-    print(f"Active (20%): {len(active_bts)}")
-    print(f"Power Outage (15%): {len(power_bts)}")
-    print(f"Failed (65%): {len(failed_bts)}")
+    print(f"Active (10%): {len(active_bts)}")
+    print(f"Power Outage (20%): {len(power_bts)}")
+    print(f"Failed (70%): {len(failed_bts)}")
     print(f"FAILED TOTAL: {len(failed_all)}")
     print(f"Output saved to: {output_path.resolve()}")
     print("==================================================")

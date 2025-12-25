@@ -94,7 +94,6 @@ def hydrologic_flood_fill(dem_array, water_mask):
 
     return visited
 
-
 def allocate_flood(dem_array, floodable_mask):
     """Assign flood depths via percentile rule inside floodable mask."""
     mask_bool = floodable_mask.astype(bool)

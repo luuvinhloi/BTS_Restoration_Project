@@ -19,8 +19,8 @@ import random
 # ========================================
 # CONFIGURATION
 # ========================================
-DIESEL_PRICE = 20_000
-ELECTRICITY_PRICE = 3_000
+DIESEL_PRICE = 20_000 # giá dầu
+ELECTRICITY_PRICE = 3_000 # giá điện
 RNG_SEED = 42
 random.seed(RNG_SEED)
 np.random.seed(RNG_SEED)
@@ -39,20 +39,20 @@ DEVICES = {
         "type": "GENSET",
         "model": "KPS KP14000Q-3D-10KW",
         "power_kW": 10,
-        "consumption_L_kWh": 0.35
+        "consumption_L_kWh": 0.35 # mức tiêu hao nhiên liệu (lít/kWh)
     },
     "GENS_S": {
         "type": "GENSET",
         "model": "KPS KP7000Q-5.0KW",
         "power_kW": 5,
-        "consumption_L_kWh": 0.35
+        "consumption_L_kWh": 0.35 # mức tiêu hao nhiên liệu (lít/kWh)
     },
     "BAT_10": {
         "type": "BATTERY",
         "model": "48V 200Ah LiFePO4 (10 kWh) rack",
         "energy_kWh": 10,
-        "usable_fraction": 0.8,
-        "roundtrip_efficiency": 0.98
+        "usable_fraction": 0.8, # sử dụng 80% dung lượng pin
+        "roundtrip_efficiency": 0.98 # hiệu suất sạc xả
     },
     "BAT_5_EV48100_15S": {
         "type": "BATTERY",
@@ -82,7 +82,6 @@ def choose_device(bts_type):
         return "BAT_5_EV48100_16S"
     return "BAT_10"
 
-
 # Haversine distance
 def haversine(lat1, lon1, lat2, lon2):
     R = 6371
@@ -91,7 +90,6 @@ def haversine(lat1, lon1, lat2, lon2):
     dlon = lon2 - lon1
     a = math.sin(dlat/2)**2 + math.cos(lat1)*math.cos(lat2)*(math.sin(dlon/2)**2)
     return 2 * R * math.asin(math.sqrt(a))
-
 
 # Compute runtime and cost for 24 hours operation
 def compute_runtime_and_cost_24h(device_key, bts_type):
@@ -120,7 +118,6 @@ def compute_runtime_and_cost_24h(device_key, bts_type):
 
     return runtime_h, num_cycles, cost_24h
 
-
 # BASE stations
 BASES = [
     {"id": "BASE_1", "name": "Phu Xuan District", "lat": 16.4832781, "lon": 107.5715416},
@@ -144,10 +141,7 @@ def find_nearest_base(lat, lon):
             best = b
     return best
 
-
-# ================================================================
 # MAIN FUNCTION
-# ================================================================
 def generate_backup_power_dataset(outage_csv_path, output_csv_path):
     df = pd.read_csv(outage_csv_path)
 
@@ -196,4 +190,4 @@ def generate_backup_power_dataset(outage_csv_path, output_csv_path):
     Path(output_csv_path).parent.mkdir(parents=True, exist_ok=True)
     df_out.to_csv(output_csv_path, index=False)
 
-    print(f"Generated backup_power.csv → {output_csv_path}")
+    print(f"Generated backup_power.csv at {output_csv_path}")

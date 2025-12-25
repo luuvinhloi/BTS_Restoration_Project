@@ -821,13 +821,12 @@ def export_solution_files(data, sol, output_dir=None, prefix='solution'):
         rec.update({
             'distance_km': info.get('distance_km', ''),
             'travel_time_hr': travel_time,
+            'travel_cost_vnd': travel_cost,
             'total_time_hr': (
                 float(travel_time) + SETUP_TIME_HR
                 if travel_time != '' and not pd.isna(travel_time)
                 else ''
             ),
-            'travel_cost_vnd': travel_cost,
-            'cost_vnd': cost_vnd,
             'total_cost_vnd': (
                 float(travel_cost) + cost_vnd
                 if travel_cost != '' and not pd.isna(travel_cost)
@@ -844,9 +843,8 @@ def export_solution_files(data, sol, output_dir=None, prefix='solution'):
             'site_id',
             'distance_km',
             'travel_time_hr',
-            'total_time_hr',
             'travel_cost_vnd',
-            'cost_vnd',
+            'total_time_hr',
             'total_cost_vnd'
         ]
     )
@@ -875,8 +873,7 @@ def export_solution_files(data, sol, output_dir=None, prefix='solution'):
             'power_id': p_id if p_id is not None else '',
             'distance_km': info.get('distance_km', ''),
             'total_time_hr': info.get('total_time_hr', ''),
-            'travel_cost_vnd': travel_cost_vnd,
-            'cost_vnd_24h': cost_vnd_24h,
+            'total_travel_cost_vnd': travel_cost_vnd,
             'total_cost_vnd': travel_cost_vnd + cost_vnd_24h,
             'note': info.get('note', '')
         }
@@ -890,8 +887,7 @@ def export_solution_files(data, sol, output_dir=None, prefix='solution'):
             'power_id',
             'distance_km',
             'total_time_hr',
-            'travel_cost_vnd',
-            'cost_vnd_24h',
+            'total_travel_cost_vnd',
             'total_cost_vnd',
             'note'
         ]

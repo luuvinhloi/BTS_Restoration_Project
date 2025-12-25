@@ -1,6 +1,6 @@
 # feature_extraction_final.py
 """
-Feature extraction (I_points, J_sites) — refactored, optimized, compact.
+Feature extraction (I_points_B, J_sites_B) — refactored, optimized, compact.
 
 Key behaviors:
  - Method A: remove population inside union(active_bts + failed_bts with status='power_outage')
@@ -10,7 +10,7 @@ Key behaviors:
      * outside boundary
      * inside vector water polygons (river/lake/sea)
      * flood_depth >= flood_depth_threshold_m (default 0.5 m)
- - Outputs unchanged: I_points.csv, J_sites.csv, cover.npy
+ - Outputs unchanged: I_points_B.csv, J_sites_B.csv, cover.npy
  - Clean, modular functions for maintainability.
 """
 from pathlib import Path
@@ -50,7 +50,7 @@ except Exception:
         except Exception:
             return gpd.GeoDataFrame()
 
-# ---------------------- PATHS & DEFAULTS ----------------------
+# PATHS & DEFAULTS
 _file = Path(__file__).resolve()
 _project_root = _file.parents[3] if len(_file.parents) >= 4 else _file.parents[-1]
 DATA_DIR = _project_root / "data"
@@ -64,10 +64,10 @@ DAMAGE_BTS_DIR = DATA_DIR / "processed" / "damage_bts"
 # flood tif default location (user-provided in prompt)
 FLOOD_TIF_DEFAULT = _project_root / "BTS_Restoration_Project" / "data" / "processed" / "flood" / "flood_depth_combined_clean.tif"
 
-# ---------------------- READ BTS & POP ----------------------
+# READ BTS & POP
 def _read_bts_files(damage_bts_dir: Path = DAMAGE_BTS_DIR):
-    active_path = damage_bts_dir / "active_bts.csv"
-    failed_path = damage_bts_dir / "failed_bts.csv"
+    active_path = damage_bts_dir / "active_bts_B.csv"
+    failed_path = damage_bts_dir / "failed_bts_B.csv"
     active = pd.read_csv(active_path) if active_path.exists() else pd.DataFrame()
     failed = pd.read_csv(failed_path) if failed_path.exists() else pd.DataFrame()
     return active, failed
@@ -97,7 +97,7 @@ def extract_population_cells(pop_tif: str, threshold: float = 3.0) -> gpd.GeoDat
     except Exception:
         return gpd.GeoDataFrame(columns=["longitude","latitude","pop","geometry"], crs="EPSG:4326")
 
-# ---------------------- Remove population covered by operational BTS (Method A) ----------------------
+# Remove population covered by operational BTS (Method A)
 def remove_covered_by_operational_bts(pop_gdf: gpd.GeoDataFrame,
                                       active_bts_df: pd.DataFrame,
                                       failed_bts_df: pd.DataFrame,
@@ -151,7 +151,7 @@ def remove_covered_by_operational_bts(pop_gdf: gpd.GeoDataFrame,
     mask = pop_proj.geometry.within(union_buf)
     return pop_gdf.loc[~mask.values].reset_index(drop=True)
 
-# ---------------------- Clustering & selection helpers ----------------------
+# Clustering & selection helpers
 def cluster_population_dbscan(pop_gdf: gpd.GeoDataFrame, eps_m: float = 1200, min_samples: int = 3):
     """Cluster population points (EPSG:3857) and return clusters metadata and projected pop_gdf."""
     if pop_gdf is None or pop_gdf.empty:
@@ -255,7 +255,7 @@ def assign_priority_to_I(I_df: pd.DataFrame, infra_paths: dict, buffer_m: float 
     })
     return out
 
-# ---------------------- Sampling helpers ----------------------
+# Sampling helpers
 def safe_sample_point(line: LineString, trans_3857_to_wgs: Transformer):
     """Sample random point along a LineString provided in 3857 coords -> returns lon,lat (WGS84)."""
     try:
@@ -297,7 +297,7 @@ def grid_sample_within_bounds(boundary_gdf: gpd.GeoDataFrame, spacing_m: float, 
     except Exception:
         return []
 
-# ---------------------- Generate J candidates (flood & water filtered) ----------------------
+# Generate J candidates (flood & water filtered)
 def generate_J_candidates(I_df: pd.DataFrame,
                           roads_gdf: gpd.GeoDataFrame,
                           water_gdf: gpd.GeoDataFrame,
@@ -627,7 +627,7 @@ def generate_J_candidates(I_df: pd.DataFrame,
     J_df = J_df.drop_duplicates(subset=["lat_r", "lon_r"]).drop(columns=["lat_r","lon_r"]).reset_index(drop=True)
     return J_df
 
-# ---------------------- Selection: balanced & target-aware ----------------------
+# Selection: balanced & target-aware
 def evaluate_and_select_J(I_df: pd.DataFrame,
                           J_pool: pd.DataFrame,
                           pop_gdf: gpd.GeoDataFrame,
@@ -730,7 +730,7 @@ def evaluate_and_select_J(I_df: pd.DataFrame,
     final = final[:target_J]
     return J_pool.iloc[final].copy().reset_index(drop=True)
 
-# ---------------------- FPS helpers ----------------------
+# FPS helpers
 def farthest_point_sampling_indices(points, k, seed_coords=None):
     """FPS selection on points array Nx2."""
     N = points.shape[0]
@@ -767,7 +767,7 @@ def farthest_point_sample(J_pool: pd.DataFrame, target: int):
     sel_rel = farthest_point_sampling_indices(coords, k=min(target, len(coords)))
     return J_pool.iloc[sel_rel].copy().reset_index(drop=True)
 
-# ---------------------- Wrapper ----------------------
+# Wrapper
 def evaluate_candidates_and_reduce_overlap(I_df: pd.DataFrame,
                                            J_df: pd.DataFrame,
                                            pop_gdf: gpd.GeoDataFrame,
@@ -796,7 +796,7 @@ def evaluate_candidates_and_reduce_overlap(I_df: pd.DataFrame,
         return pd.DataFrame()
     return sel.reset_index(drop=True)
 
-# ---------------------- MAIN ROUTINE ----------------------
+# MAIN ROUTINE
 def main(config: dict, out_dir: str or Path):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -1000,7 +1000,7 @@ def main(config: dict, out_dir: str or Path):
                 J_df["priority_category"] = "normal"
                 J_df["pop"] = 0.0
 
-    # ----- Standardize output -----
+    # Standardize output
     if J_df is None or J_df.empty:
         J_out = pd.DataFrame(columns=[
             "site_id","i_ref","latitude","longitude","pop","priority_category",
@@ -1032,7 +1032,7 @@ def main(config: dict, out_dir: str or Path):
                 J_df[col] = np.nan
         J_out = J_df[cols].copy().reset_index(drop=True)
 
-    # ----- Prepare I output -----
+    # Prepare I output
     if I_df is None or I_df.empty:
         I_out = pd.DataFrame(columns=["site_id","latitude","longitude","pop","priority_category","priority_weight"])
     else:
@@ -1049,9 +1049,9 @@ def main(config: dict, out_dir: str or Path):
             "priority_weight": I_df["priority_weight"].astype(float)
         })
 
-    # ----- Save outputs -----
-    I_out.to_csv(out_dir / "I_points.csv", index=False)
-    J_out.to_csv(out_dir / "J_sites.csv", index=False)
+    # Save outputs
+    I_out.to_csv(out_dir / "I_points_B.csv", index=False)
+    J_out.to_csv(out_dir / "J_sites_B.csv", index=False)
 
     # Cover matrix
     if len(I_out) > 0 and len(J_out) > 0:
@@ -1064,11 +1064,11 @@ def main(config: dict, out_dir: str or Path):
     np.save(out_dir / "cover.npy", cover)
 
     print(f"[Feature Extraction] Saved {len(I_out)} I-points, {len(J_out)} J-sites")
-    return {"I_points": out_dir / "I_points.csv",
-            "J_sites": out_dir / "J_sites.csv",
+    return {"I_points_B": out_dir / "I_points_B.csv",
+            "J_sites_B": out_dir / "J_sites_B.csv",
             "cover": out_dir / "cover.npy"}
 
-# ---------------------- Script Entry ----------------------
+#-- Script Entry--
 if __name__ == "__main__":
     import yaml
     proj = Path(__file__).resolve().parents[3]

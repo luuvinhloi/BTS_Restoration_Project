@@ -1,6 +1,7 @@
 # main.py
 import argparse
 from pathlib import Path
+import time
 
 # Utils
 from src.utils.io_utils import read_yaml
@@ -30,9 +31,15 @@ from src.preprocessing.travel_cost.compute_travel_costs import (
 )
 
 # Stage 6: Optimization
-from src.optimization.MILP.milp_solver import main_solve as milp_main
-from src.optimization.GA_PSO.ga_pso_solver import run_from_config as ga_pso_main
-from src.optimization.MILP_GA_PSO.hybrid_milp_ga_pso import run_hybrid
+# MILP Solver
+# from src.optimization.MILP.milp_solver import main_solve as milp_main
+from src.optimization.MILP.milp_solver_new import main_solve as milp_main_new
+# GA-PSO Solver
+# from src.optimization.GA_PSO.ga_pso_solver import run_from_config as ga_pso_main
+from src.optimization.GA_PSO.ga_pso_solver_new import run_from_config as ga_pso_main
+# Hybrid MILP + GA-PSO Solver
+# from src.optimization.MILP_GA_PSO.hybrid_milp_ga_pso import run_hybrid
+from src.optimization.MILP_GA_PSO.hybrid_milp_ga_pso_new import run_hybrid
 
 # Stage 7: Population coverage computation
 from src.compute_pop_cover.compute_population_coverage_milp import (
@@ -58,6 +65,8 @@ from src.simulation.coverage.coverage_population_stats import run as run_coverag
 
 from src.simulation.comparison.method_comparison_plots import run as run_method_comparison
 
+# Measure total execution time
+start = time.perf_counter()
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 
@@ -66,66 +75,70 @@ def run_pipeline(config_path):
     method = cfg.get("method", "MILP").upper()
 
     print("Stage 1: Data Cleaning...")
-    run_cleaning_pipeline()
+    # run_cleaning_pipeline()
 
     print("Stage 2: Generating BTS network, Generating COW dataset and Generating Backup Power dataset...")
     print("Generating COW dataset...")
-    generate_bts_network()
+    # generate_bts_network()
     print("Generating COW dataset...")
-    generate_cow_dataset(str(PROJECT_ROOT / "data" / "processed"))
+    # generate_cow_dataset(str(PROJECT_ROOT / "data" / "processed"))
     print("Generating Backup Power dataset")
-    generate_backup_power_dataset(
-        outage_csv_path=str(PROJECT_ROOT / "data" / "processed" / "damage_bts" / "failed_bts.csv"),
-        output_csv_path=str(PROJECT_ROOT / "data" / "processed" / "backup_power" / "backup_power.csv")
-    )
+    # generate_backup_power_dataset(
+    #     outage_csv_path=str(PROJECT_ROOT / "data" / "processed" / "damage_bts" / "failed_bts.csv"),
+    #     output_csv_path=str(PROJECT_ROOT / "data" / "processed" / "backup_power" / "backup_power.csv")
+    # )
 
     print("Stage 3: Generating Flood and Generating Flood road...")
-    run_flood_simulation()
+    # run_flood_simulation()
 
     print("Generating Flood roads...")
-    generate_flooded_roads()
+    # generate_flooded_roads()
 
     print("Stage 4: Generating damage scenario...")
-    generate_bts_damage_dataset(
-        bts_csv_path=str(PROJECT_ROOT / "data/processed/bts_network/bts_ga.csv"),
-        flood_tif_path=str(PROJECT_ROOT / "data/processed/flood/flood_depth_combined_clean.tif"),
-        output_dir=str(PROJECT_ROOT / "data/processed/damage_bts"),
-        active_rate=0.20,
-        power_outage_rate=0.15,
-        failed_rate=0.65,
-        seed=cfg.get("seed", 42)
-    )
+    # generate_bts_damage_dataset( # Kịch bản B hư hại 70%, mất nguồn 20%, hoạt động 10%
+    #     bts_csv_path=str(PROJECT_ROOT / "data/processed/bts_network/bts_ga.csv"),
+    #     flood_tif_path=str(PROJECT_ROOT / "data/processed/flood/flood_depth_combined_clean.tif"),
+    #     output_dir=str(PROJECT_ROOT / "data/processed/damage_bts"),
+    #     active_rate=0.10,
+    #     power_outage_rate=0.20,
+    #     failed_rate=0.70,
+    #     seed=cfg.get("seed", 42)
+    # )
 
     print("Stage 5: Generate data sets I, J and Calculate travel time and costs")
-    feature_extraction_final(cfg, str(PROJECT_ROOT / "data" / "processed" / "position_I_J"))
+    # feature_extraction_final(cfg, str(PROJECT_ROOT / "data" / "processed" / "position_I_J"))
 
     print("Computing travel time & cost matrix...")
     print("Computing travel time & cost for COW to J_sites...")
-    compute_cow_travel_matrix(
-        cow_csv=str(PROJECT_ROOT / "data/processed/cow/cow_dataset.csv"),
-        site_csv=str(PROJECT_ROOT / "data/processed/position_I_J/J_sites.csv"),
-        graphml_path=str(PROJECT_ROOT / "data/processed/road/roads_flooded.graphml"),
-        output_csv=str(PROJECT_ROOT / "data/processed/travel_cost/cow_to_J_sites.csv"),
-        graph_pickle_cache=str(PROJECT_ROOT / "cache/flood_graph.pkl"),
-    )
+    # compute_cow_travel_matrix(
+    #     cow_csv=str(PROJECT_ROOT / "data/processed/cow/cow_dataset.csv"),
+    #     site_csv=str(PROJECT_ROOT / "data/processed/position_I_J/J_sites_B.csv"),
+    #     graphml_path=str(PROJECT_ROOT / "data/processed/road/roads_flooded.graphml"),
+    #     output_csv=str(PROJECT_ROOT / "data/processed/travel_cost/cow_to_J_sites_B.csv"),
+    #     graph_pickle_cache=str(PROJECT_ROOT / "cache/flood_graph.pkl"),
+    # )
 
     print("Computing travel time & cost for Backup Power → Failed BTS...")
-    compute_backup_travel_matrix(
-        backup_csv=str(PROJECT_ROOT / "data/processed/backup_power/backup_power.csv"),
-        outage_bts_csv=str(PROJECT_ROOT / "data/processed/damage_bts/failed_bts.csv"),
-        graphml_path=str(PROJECT_ROOT / "data/processed/road/roads_flooded.graphml"),
-        output_csv=str(PROJECT_ROOT / "data/processed/travel_cost/backup_to_failed_bts.csv"),
-        graph_pickle_cache=str(PROJECT_ROOT / "cache/flood_graph.pkl"),
-        optimize_for="time"
-    )
+    # compute_backup_travel_matrix(
+    #     backup_csv=str(PROJECT_ROOT / "data/processed/backup_power/backup_power.csv"),
+    #     outage_bts_csv=str(PROJECT_ROOT / "data/processed/damage_bts/failed_bts_B.csv"),
+    #     graphml_path=str(PROJECT_ROOT / "data/processed/road/roads_flooded.graphml"),
+    #     output_csv=str(PROJECT_ROOT / "data/processed/travel_cost/backup_to_failed_bts_B.csv"),
+    #     graph_pickle_cache=str(PROJECT_ROOT / "cache/flood_graph.pkl"),
+    #     optimize_for="time"
+    # )
 
     print("Stage 6: Optimization")
     processed_dir = str(PROJECT_ROOT / "data" / "processed")
-    outputs_dir = str(PROJECT_ROOT / "outputs" / "milp_runs")
+    outputs_dir = str(PROJECT_ROOT / "outputs" / "milp_runs_new")
 
     if method == "MILP":
         print("Solving with MILP (Full model - lexicographic)...")
-        results = milp_main(cfg, processed_dir, outputs_dir)
+        # results = milp_main(cfg, processed_dir, outputs_dir)
+
+        # NEW
+        solver_name = cfg.get("solver_name", "GUROBI").upper()
+        results = milp_main_new(cfg, processed_dir, outputs_dir, solver_name=solver_name)
 
         print("MILP finished. Results object returned.")
 
@@ -152,60 +165,64 @@ def run_pipeline(config_path):
         raise ValueError(f"Unknown method '{method}'. Must be MILP, GA_PSO, or HYBRID.")
 
     print("Stage 7: Computing population coverage...")
-    try:
-        if method == "MILP":
-            print("Computing population coverage for MILP...")
-            coverage_summary = compute_coverage_milp(method="MILP_GUROBI")
-
-        elif method == "GA_PSO":
-            print("Computing population coverage for GA-PSO...")
-            coverage_summary = compute_coverage_gapso(method="GA_PSO")
-
-        elif method == "MILP_GA_PSO":
-            print("Computing population coverage for Hybrid MILP + GA-PSO...")
-            coverage_summary = compute_coverage_hybrid(method="MILP_GA_PSO")
-
-        else:
-            raise ValueError(f"Unsupported method for coverage: {method}")
-
-        print("Coverage computation finished successfully.")
-        print("Coverage summary:", coverage_summary)
-
-    except Exception as e:
-        print("Population coverage computation failed:")
-        print(e)
+    # try:
+    #     if method == "MILP":
+    #         print("Computing population coverage for MILP...")
+    #         coverage_summary = compute_coverage_milp(method="MILP_GUROBI")
+    #
+    #     elif method == "GA_PSO":
+    #         print("Computing population coverage for GA-PSO...")
+    #         coverage_summary = compute_coverage_gapso(method="GA_PSO")
+    #
+    #     elif method == "MILP_GA_PSO":
+    #         print("Computing population coverage for Hybrid MILP + GA-PSO...")
+    #         coverage_summary = compute_coverage_hybrid(method="MILP_GA_PSO")
+    #
+    #     else:
+    #         raise ValueError(f"Unsupported method for coverage: {method}")
+    #
+    #     print("Coverage computation finished successfully.")
+    #     print("Coverage summary:", coverage_summary)
+    #
+    # except Exception as e:
+    #     print("Population coverage computation failed:")
+    #     print(e)
 
     #  Simulation
     print("Stage 8: Simulation...")
-    try:
-        print("8.1: Spatial flood map...")
-        run_spatial_flood_map()
-
-        print("8.2: Spatial BTS status map...")
-        run_spatial_bts_status()
-
-        print("8.3: Spatial deployment & coverage maps...")
-        run_spatial_deployment_map()
-
-        print("8.4: Spatial deployment routes...")
-        run_spatial_routes_map()
-
-        print("8.5: Population coverage maps...")
-        run_coverage_population_map()
-
-        print("8.6: Population coverage statistics...")
-        run_coverage_population_stats()
-
-        print("8.7: Method comparison analysis...")
-        run_method_comparison()
-
-        print("Stage 8 completed successfully.")
-
-    except Exception as e:
-        print("[ERROR] Simulation stage failed:")
-        print(e)
+    # try:
+    #     print("8.1: Spatial flood map...")
+    #     run_spatial_flood_map()
+    #
+    #     print("8.2: Spatial BTS status map...")
+    #     run_spatial_bts_status()
+    #
+    #     print("8.3: Spatial deployment & coverage maps...")
+    #     run_spatial_deployment_map()
+    #
+    #     print("8.4: Spatial deployment routes...")
+    #     run_spatial_routes_map()
+    #
+    #     print("8.5: Population coverage maps...")
+    #     run_coverage_population_map()
+    #
+    #     print("8.6: Population coverage statistics...")
+    #     run_coverage_population_stats()
+    #
+    #     print("8.7: Method comparison analysis...")
+    #     run_method_comparison()
+    #
+    #     print("Stage 8 completed successfully.")
+    #
+    # except Exception as e:
+    #     print("[ERROR] Simulation stage failed:")
+    #     print(e)
 
     print("Pipeline finished successfully.")
+
+    # Measure total execution time
+    end = time.perf_counter()
+    print("Runtime:", end - start)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

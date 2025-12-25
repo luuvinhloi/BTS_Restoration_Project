@@ -56,66 +56,75 @@ NEIGH_ARR = None
 INDICES = None
 
 # Utility functions
-def compute_pixel_area_km2_from_raster(src):
+def compute_pixel_area_km2_from_raster(src): # Xác định diện tích thực tế (km^2) của 1 pixel raster dân số
     import pyproj
+    #Lấy kích thước raster
     width = src.width
     height = src.height
     transform = src.transform
+    # Chọn pixel ở giữa raster
     row = height // 2
     col = width // 2
+    # Lấy tọa độ
     lon, lat = rio_xy(transform, row, col, offset='center')
     lon_r, lat_r = rio_xy(transform, row, col+1, offset='center')
     lon_d, lat_d = rio_xy(transform, row+1, col, offset='center')
+    # Chuyển từ WGS84 sang UTM (đơn vị mét)
     proj = pyproj.Transformer.from_crs("epsg:4326", "epsg:32648", always_xy=True)
     x_c, y_c = proj.transform(lon, lat)
     x_r, y_r = proj.transform(lon_r, lat_r)
     x_d, y_d = proj.transform(lon_d, lat_d)
+    # Tính chiều rộng & chiều cao pixel (m)
     dx = abs(x_r - x_c)
     dy = abs(y_d - y_c)
-    return (dx * dy) / 1e6
+    return (dx * dy) / 1e6 # Đổi sang km^2
 
-def detect_raster_density_or_count(src):
+def detect_raster_density_or_count(src): # Xác định Raster là mật độ dân số (người/km^2) hay hay số người/pixel
+    # Lấy toàn bộ pixel hợp lệ
     band = src.read(1, masked=True)
     data = band.compressed() if hasattr(band, "compressed") else band[~band.mask]
     if data.size == 0:
         raise RuntimeError("Raster invalid.")
+    # Giá trị trung bình pixel
     mean_val = float(data.mean())
+    # Lấy diện tích pixel`
     pixel_area_km2 = compute_pixel_area_km2_from_raster(src)
-    implied_density = mean_val / pixel_area_km2
-    if implied_density > 50:
-        return False, dict(mean=mean_val, implied_density=implied_density, pixel_area_km2=pixel_area_km2)
-    else:
-        return True, dict(mean=mean_val, implied_density=implied_density, pixel_area_km2=pixel_area_km2)
 
-def ensure_within_boundary(gdf, boundary):
+    implied_density = mean_val / pixel_area_km2 # Nếu pixel là count thì giá trị density rất lớn
+    if implied_density > 50:
+        return False, dict(mean=mean_val, implied_density=implied_density, pixel_area_km2=pixel_area_km2) # Raster là count
+    else:
+        return True, dict(mean=mean_val, implied_density=implied_density, pixel_area_km2=pixel_area_km2) # Raster là density
+
+def ensure_within_boundary(gdf, boundary): # Loại bỏ các điểm nằm ngoài ranh giới
     return gdf[gdf.geometry.within(boundary.unary_union)].copy().reset_index(drop=True)
 
-def nearest_distance(point, gdf_targets):
+def nearest_distance(point, gdf_targets): # Tính khoảng cách gần nhất từ BTS đến các đối tượng trong gdf_targets
     if gdf_targets is None or gdf_targets.empty:
         return float('inf')
     return float(gdf_targets.distance(point).min())
 
 # GA helpers
-def pool_init(pop_arr, neigh_arr, indices):
+def pool_init(pop_arr, neigh_arr, indices): # Khởi tạo biến toàn cục cho multiprocessing trong GA
     global POP_ARR_CANDIDATES, NEIGH_ARR, INDICES
-    POP_ARR_CANDIDATES = np.array(pop_arr)
-    NEIGH_ARR = np.array(neigh_arr)
-    INDICES = list(indices)
+    POP_ARR_CANDIDATES = np.array(pop_arr) # pop_covered của tất cả BTS
+    NEIGH_ARR = np.array(neigh_arr) # neighbour_weight
+    INDICES = list(indices) # chỉ số BTS
 
-def fitness_of_indices(idx_list):
+def fitness_of_indices(idx_list): # Hàm đánh giá fitness trong GA
     idxs = np.array(idx_list, dtype=int)
     pop_sum = POP_ARR_CANDIDATES[idxs].sum()
     neigh_mean = NEIGH_ARR[idxs].mean() if len(idxs) else 0.0
     score = pop_sum - ALPHA_NEIGHBOR * neigh_mean * NEIGH_PENALTY_SCALE
     return (score,)
 
-def evaluate_individual(ind):
+def evaluate_individual(ind): # Hàm đánh giá cá thể trong GA
     return fitness_of_indices(ind)
 
-def init_individual_top():
+def init_individual_top(): # Khởi tạo cá thể GA hợp lệ
     return creator.Individual(random.sample(INDICES, NUM_BTS))
 
-def mutate_swap_top(individual, indpb=0.2):
+def mutate_swap_top(individual, indpb=0.2): # Đột biến hoán đổi vị trí trong cá thể GA
     if random.random() < indpb:
         i, j = random.sample(range(len(individual)), 2)
         individual[i], individual[j] = individual[j], individual[i]
@@ -137,7 +146,7 @@ def cx_twopoint_unique_top(ind1, ind2):
     return ind1, ind2
 
 # Domain-specific helpers
-def get_power_w(bts_type):
+def get_power_w(bts_type): # Gán công suất tiêu thụ (W) cho BTS
     mapping = {
         "4G_remote": 1200,
         "4G_macro": 5000,
@@ -146,7 +155,7 @@ def get_power_w(bts_type):
     }
     return mapping.get(bts_type, 5000)
 
-def coverage_radius_by_type(t):
+def coverage_radius_by_type(t): # Xác định bán kính phủ sóng (m) theo loại BTS
     if t is None:
         return COVERAGE_RADIUS_DEFAULT
     t = t.lower()
@@ -157,7 +166,7 @@ def coverage_radius_by_type(t):
         "4g_macro": 1500
     }.get(t, COVERAGE_RADIUS_DEFAULT)
 
-def assign_bts_type(row):
+def assign_bts_type(row): # Gán loại BTS dựa trên các đặc điểm vị trí
     region = row.get('region_type','rural')
     popcov = row.get('pop_covered',0)
     dist_res = row.get('dist_to_residential_m', 1e9)
@@ -181,7 +190,7 @@ def assign_bts_type(row):
     return "4G_macro"
 
 # Unique coverage helpers
-def compute_unique_coverage_generic(selected_gdf, pop_raster, raster_is_density, nodata):
+def compute_unique_coverage_generic(selected_gdf, pop_raster, raster_is_density, nodata): # Dân số phủ sóng không trùng lặp
     if selected_gdf.empty:
         return dict(total_pop=0.0, area_km2=0.0, overlap_ratio=0.0)
 
