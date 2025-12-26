@@ -165,28 +165,28 @@ def run_pipeline(config_path):
         raise ValueError(f"Unknown method '{method}'. Must be MILP, GA_PSO, or HYBRID.")
 
     print("Stage 7: Computing population coverage...")
-    # try:
-    #     if method == "MILP":
-    #         print("Computing population coverage for MILP...")
-    #         coverage_summary = compute_coverage_milp(method="MILP_GUROBI")
-    #
-    #     elif method == "GA_PSO":
-    #         print("Computing population coverage for GA-PSO...")
-    #         coverage_summary = compute_coverage_gapso(method="GA_PSO")
-    #
-    #     elif method == "MILP_GA_PSO":
-    #         print("Computing population coverage for Hybrid MILP + GA-PSO...")
-    #         coverage_summary = compute_coverage_hybrid(method="MILP_GA_PSO")
-    #
-    #     else:
-    #         raise ValueError(f"Unsupported method for coverage: {method}")
-    #
-    #     print("Coverage computation finished successfully.")
-    #     print("Coverage summary:", coverage_summary)
-    #
-    # except Exception as e:
-    #     print("Population coverage computation failed:")
-    #     print(e)
+    try:
+        if method == "MILP":
+            print("Computing population coverage for MILP...")
+            coverage_summary = compute_coverage_milp(method="MILP_GUROBI")
+
+        elif method == "GA_PSO":
+            print("Computing population coverage for GA-PSO...")
+            coverage_summary = compute_coverage_gapso(method="GA_PSO")
+
+        elif method == "MILP_GA_PSO":
+            print("Computing population coverage for Hybrid MILP + GA-PSO...")
+            coverage_summary = compute_coverage_hybrid(method="MILP_GA_PSO")
+
+        else:
+            raise ValueError(f"Unsupported method for coverage: {method}")
+
+        print("Coverage computation finished successfully.")
+        print("Coverage summary:", coverage_summary)
+
+    except Exception as e:
+        print("Population coverage computation failed:")
+        print(e)
 
     #  Simulation
     print("Stage 8: Simulation...")

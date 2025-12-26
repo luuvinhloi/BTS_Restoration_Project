@@ -39,8 +39,8 @@ CLEANED_DIR = PROJECT_ROOT / "data" / "cleaned"
 OUT_DIR = PROJECT_ROOT / "outputs"
 
 # GA-PSO assignment results (expected)
-ASSIGN_COW_HYBRID = OUT_DIR / "results_hybrid" / "solution_cow_assignments.csv"
-ASSIGN_POWER_HYBRID = OUT_DIR / "results_hybrid" / "solution_power_assignments.csv"
+ASSIGN_COW_HYBRID = OUT_DIR / "results_hybrid_new" / "solution_cow_assignments.csv"
+ASSIGN_POWER_HYBRID = OUT_DIR / "results_hybrid_new" / "solution_power_assignments.csv"
 
 # Inputs reused from MILP pipeline
 POP_RASTER = CLEANED_DIR / "pop_hue_clean.tif"
@@ -51,7 +51,7 @@ COWS = PROCESSED_DIR / "cow" / "cow_dataset.csv"
 BOUNDARY_GEOJSON = CLEANED_DIR / "hue_boundary_clean.geojson"
 
 # Output folder for GA-PSO summary
-SUMMARY_DIR = OUT_DIR / "summary" / "milp_ga_pso"
+SUMMARY_DIR = OUT_DIR / "summary_new" / "milp_ga_pso"
 SUMMARY_DIR.mkdir(parents=True, exist_ok=True)
 
 # -------------------------
@@ -582,7 +582,7 @@ def compute_power_coverage_from_hybrid(assign_path: Path, failed_bts_path: Path,
 # -------------------------
 def main_compute_all(method="MILP_GA_PSO"):
     method_key = str(method).lower()
-    method_summary_dir = OUT_DIR / "summary" / method_key
+    method_summary_dir = OUT_DIR / "summary_new" / method_key
     method_summary_dir.mkdir(parents=True, exist_ok=True)
 
     global SUMMARY_DIR

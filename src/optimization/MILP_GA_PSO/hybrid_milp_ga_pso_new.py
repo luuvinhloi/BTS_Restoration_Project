@@ -181,7 +181,7 @@ def milp_presolve(data):
             cand = power_travel[power_travel['bts_id'] == b_id] if 'bts_id' in power_travel.columns else pd.DataFrame()
             if cand.empty:
                 continue
-            for _, p in cand.sort_values('total_cost_vnd').iterrows() if 'total_cost_vnd' in cand.columns else cand.iterrows():
+            for _, p in cand.sort_values('travel_cost_vnd').iterrows():
                 if p['power_id'] in feasible_power_ids and p['power_id'] not in used_powers:
                     sol['powers'][b_id] = p['power_id']
                     used_powers.add(p['power_id'])
@@ -314,7 +314,7 @@ class HybridGAPSO:
             (row.get('power_id'), row.get('bts_id')): (
                 row.get('distance_km', np.nan),
                 row.get('total_time_hr', np.nan),
-                row.get('total_cost_vnd', np.nan),
+                row.get('travel_cost_vnd', np.nan),
             )
             for _, row in data['power_travel_df'].iterrows()
         }
@@ -363,9 +363,9 @@ class HybridGAPSO:
 
             # COW deployment
             if self.feasible_cows:
-                for cow in random.sample(self.feasible_cows, k=min(len(self.feasible_cows), 10)):
-                    if random.random() < 0.3:
-                        sol['cows'][cow] = random.choice(list(self.reduced_J))
+                for cow in self.feasible_cows:
+                    if random.random() < 0.6:
+                        sol['cows'][cow] = random.choice(target_J)
 
             # Power assignment
             used = set()
@@ -425,9 +425,9 @@ class HybridGAPSO:
         # =========================
         if mode == 'cow':
             # HARD CONSTRAINT: must cover all remaining areas
-            if P_remain is not None:
-                if not check_full_coverage(sol, P_remain, self.cover_cow):
-                    return -1e9  # infeasible
+            # if P_remain is not None:
+            #     if not check_full_coverage(sol, P_remain, self.cover_cow):
+            #         return -1e9  # infeasible
 
             max_t = 0.0
             total_cost = 0.0
@@ -462,8 +462,15 @@ class HybridGAPSO:
                         weighted_covered += pop * pw
                         covered_J.add(j)
 
+            cow_used = len(sol.get('cows', {}))
+            reward_cow = cow_used * 5e4  # 50,000 / COW (có thể chỉnh)
+
             # Lexicographic → encode as tuple
-            return weighted_covered - (max_t * 1e6 + total_cost)
+            return (
+                    weighted_covered
+                    + reward_cow
+                    - (max_t * 1e6 + total_cost)
+            )
 
     def repair(self, sol):
         cost_items = []
@@ -500,16 +507,12 @@ class HybridGAPSO:
                                                                                                        self.data[
                                                                                                            'bts_df'].columns else 0.0
             # deployment cost
-            cost_deploy = 0.0 if pd.isna(info[2]) else float(info[2])
+            deploy_cost = 0.0 if pd.isna(info[2]) else float(info[2])
 
-            # operating cost
             prow = self.data['power_df'][self.data['power_df']['power_id'] == p_id]
-            if not prow.empty:
-                cost_operating = float(prow.iloc[0].get('cost_vnd_24h', 0.0))
-            else:
-                cost_operating = 0.0
+            operating_cost = float(prow.iloc[0].get('cost_vnd_24h', 0.0)) if not prow.empty else 0.0
 
-            cost = cost_deploy + cost_operating
+            cost = deploy_cost + operating_cost
             eff = pop / (cost + 1e-9)
 
             cost_items.append(('power', bts_id, p_id, cost, eff))
@@ -522,8 +525,7 @@ class HybridGAPSO:
                     break
                 kind, id1, id2, c, _ = item
                 if kind == 'cow' and id1 in sol.get('cows', {}):
-                    sol['cows'].pop(id1, None)
-                    total_cost -= c
+                    continue  # do not remove cow, only accept cost
                 elif kind == 'power' and id1 in sol.get('powers', {}):
                     sol['powers'].pop(id1, None)
                     total_cost -= c
@@ -592,7 +594,9 @@ class HybridGAPSO:
 
             if random.random() < p_mut and self.feasible_cows:
                 cow = random.choice(self.feasible_cows)
-                sol['cows'][cow] = random.choice(list(self.reduced_J))
+                target_J = list(self._P_remain) if hasattr(self, '_P_remain') and self._P_remain else list(
+                    self.reduced_J)
+                sol['cows'][cow] = random.choice(target_J)
 
             return sol
 
@@ -695,7 +699,7 @@ def _build_travel_maps(data):
         power_travel_map[(r.get('power_id'), r.get('bts_id'))] = {
             'distance_km': float(r.get('distance_km', np.nan)),
             'total_time_hr': float(r.get('total_time_hr', np.nan)) if not pd.isna(r.get('total_time_hr', None)) else np.nan,
-            'total_cost_vnd': float(r.get('total_cost_vnd', np.nan)) if not pd.isna(r.get('total_cost_vnd', None)) else np.nan,
+            'travel_cost_vnd': float(r.get('travel_cost_vnd', np.nan)) if not pd.isna(r.get('travel_cost_vnd', None)) else np.nan,
             'note': r.get('note', '')
         }
     return cow_travel_map, power_travel_map
@@ -740,15 +744,11 @@ def compute_solution_metrics(data, sol):
         if info:
             tt = 0.0 if pd.isna(info['total_time_hr']) else info['total_time_hr']
             max_t = max(max_t, tt)
-            cost_deploy = 0.0 if pd.isna(info['total_cost_vnd']) else info['total_cost_vnd']
-
+            deploy_cost = info.get('travel_cost_vnd', 0.0)
             prow = data['power_df'][data['power_df']['power_id'] == p]
-            if not prow.empty:
-                cost_operating = float(prow.iloc[0].get('cost_vnd_24h', 0.0))
-            else:
-                cost_operating = 0.0
+            operating_cost = float(prow.iloc[0].get('cost_vnd_24h', 0.0)) if not prow.empty else 0.0
 
-            total_cost += cost_deploy + cost_operating
+            total_cost += deploy_cost + operating_cost
 
     total_pop = float((J_df['pop'].sum() if 'pop' in J_df.columns else 0.0) + (bts_df['pop_covered'].sum() if 'pop_covered' in bts_df.columns else 0.0))
     Rcov = covered / (total_pop + 1e-9)
@@ -801,7 +801,7 @@ def milp_local_refinement(data, sol, cover_cow, cover_bts, time_limit_sec=60, to
                 tt = 0.0
 
             # deployment cost
-            cc_deploy = float(r.get('total_cost_vnd', 0.0))
+            cc_deploy = float(r.get('travel_cost_vnd', 0.0))
 
             prow = data['power_df'][data['power_df']['power_id'] == pid]
             if not prow.empty:
@@ -828,8 +828,7 @@ def milp_local_refinement(data, sol, cover_cow, cover_bts, time_limit_sec=60, to
         outage = bts_df[bts_df.get('status', '') == 'power_outage']['site_id'].tolist() if 'status' in bts_df.columns else []
         for b in outage:
             entries = power_df[power_df['bts_id'] == b] if 'bts_id' in power_df.columns else pd.DataFrame()
-            if 'total_cost_vnd' in entries.columns:
-                entries = entries.sort_values('total_cost_vnd')
+            entries = entries.sort_values('travel_cost_vnd')
             cand = entries.head(top_k_neighbors)['power_id'].tolist() if not entries.empty else []
             cur = sol.get('powers', {}).get(b)
             if cur and cur not in cand:
@@ -1004,7 +1003,7 @@ def export_solution_files(data, sol, output_dir=None, prefix='solution'):
         else:
             cost_vnd_24h = 0.0
 
-        travel_cost_vnd = info.get('total_cost_vnd', 0.0)
+        travel_cost_vnd = info.get('travel_cost_vnd', 0.0)
 
         rec = {
             'bts_id': bts_id,
@@ -1078,10 +1077,29 @@ def run_hybrid(max_iter=300, top_k=5, export_outputs=True):
     # ==================================================
     # PHASE 2: GA-PSO — COW DEPLOYMENT
     # ==================================================
+    # Seed greedy COW solution for Phase 2
+    seed_cow = {'cows': {}, 'powers': {}}
+    uncovered = set(P_remain)
+
+    for cow in feasible_cows:
+        # ưu tiên phủ uncovered
+        candidate = [j for j in uncovered if cover_cow.get(cow, {}).get(j, 0) == 1]
+
+        if candidate:
+            chosen_j = candidate[0]
+            seed_cow['cows'][cow] = chosen_j
+            # remove all covered by this cow
+            for j in list(uncovered):
+                if cover_cow.get(cow, {}).get(j, 0) == 1:
+                    uncovered.remove(j)
+        else:
+            # nếu không còn uncovered -> đặt cow vào vùng ít overlap nhất
+            seed_cow['cows'][cow] = random.choice(list(reduced_J))
+
     ga_cow = HybridGAPSO(
         data, cover_cow, cover_bts,
         reduced_J, feasible_cows, feasible_powers,
-        seeds=[], pop_size=80, max_iter=max_iter
+        seeds=[seed_cow], pop_size=80, max_iter=max_iter
     )
 
     best_cow, best_cow_f = ga_cow.run(
@@ -1101,14 +1119,15 @@ def run_hybrid(max_iter=300, top_k=5, export_outputs=True):
     if export_outputs:
         export_solution_files(
             data, final_sol,
-            output_dir=os.path.join(
-                'BTS_Restoration_Project',
-                'outputs',
-                'results_hybrid_new'
-            )
+            output_dir=str(PROJECT_ROOT / 'outputs' / 'results_hybrid_new')
         )
 
-    return final_sol
+    return {
+        'final_solution': final_sol,
+        'best_bts_f': best_bts_f,
+        'best_cow_f': best_cow_f,
+        'refined_best_f': best_bts_f + best_cow_f
+    }
 
 if __name__ == '__main__':
     run_hybrid(max_iter=300, top_k=5, export_outputs=True)
