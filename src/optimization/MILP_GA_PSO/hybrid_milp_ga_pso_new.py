@@ -674,14 +674,20 @@ class HybridGAPSO:
 
         return self.gbest, self.gbest_f
 
+def safe_float(x, default=np.nan):
+    try:
+        return float(x)
+    except Exception:
+        return default
+
 # Metrics + Exporter
 def _build_travel_maps(data):
     cow_travel_map = {}
     for _, r in data['cow_travel_df'].iterrows():
         cow_travel_map[(r.get('cow_id'), r.get('site_id'))] = {
-            'distance_km': float(r.get('distance_km', np.nan)),
-            'travel_time_hr': float(r.get('travel_time_hr', np.nan)),
-            'travel_cost_vnd': float(r.get('travel_cost_vnd', np.nan))
+            'distance_km': safe_float(r.get('distance_km')),
+            'travel_time_hr': safe_float(r.get('travel_time_hr')),
+            'travel_cost_vnd': safe_float(r.get('travel_cost_vnd'))
         }
 
     power_travel_map = {}

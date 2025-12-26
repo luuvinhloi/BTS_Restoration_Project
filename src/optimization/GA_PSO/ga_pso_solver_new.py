@@ -224,14 +224,22 @@ class GA_PSOSolver:
 
     # Precompute helpers
     def _build_cow_travel_map(self):
-        # map (cow_id, site_id) -> dict(distance_km, travel_time_hr, travel_cost_vnd)
         m = {}
         for _, row in self.dm.cow_to_J.iterrows():
-            key = (row["cow_id"], row["site_id"])
-            m[key] = {
-                "distance_km": float(row["distance_km"]),
-                "travel_time_hr": float(row["travel_time_hr"]),
-                "travel_cost_vnd": float(row["travel_cost_vnd"])
+            try:
+                dist = float(row["distance_km"])
+                time = float(row["travel_time_hr"])
+                cost = float(row["travel_cost_vnd"])
+            except Exception as e:
+                raise ValueError(
+                    f"Invalid numeric value in cow_to_J_sites.csv "
+                    f"at cow={row['cow_id']} site={row['site_id']}: {e}"
+                )
+
+            m[(row["cow_id"], row["site_id"])] = {
+                "distance_km": dist,
+                "travel_time_hr": time,
+                "travel_cost_vnd": cost
             }
         return m
 
