@@ -1,5 +1,5 @@
 # Lựa chọn phương pháp chính method: "MILP" # "MILP" or "GA_PSO" or "MILP_GA_PSO"
-method: "MILP_GA_PSO" # "MILP" or "GA_PSO" or "MILP_GA_PSO"
+method: "GA_PSO" # "MILP" or "GA_PSO" or "MILP_GA_PSO"
 solver_name: GUROBI  # Tên solver MILP: "CBC" hoặc "GUROBI"
 
 # GLOBAL

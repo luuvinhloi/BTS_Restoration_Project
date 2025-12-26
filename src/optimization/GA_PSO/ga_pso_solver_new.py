@@ -244,14 +244,28 @@ class GA_PSOSolver:
         return m
 
     def _build_power_travel_map(self):
-        # map (power_id, bts_id) -> dict(distance_km, total_time_hr, total_cost_vnd, note)
+        """
+        map (power_id, bts_id) ->
+          distance_km
+          total_time_hr
+          travel_cost_vnd   (CHI PHÍ DI CHUYỂN)
+        """
         m = {}
         for _, row in self.dm.backup_to_bts.iterrows():
-            key = (row["power_id"], row["bts_id"])
-            m[key] = {
-                "distance_km": float(row["distance_km"]),
-                "total_time_hr": float(row["total_time_hr"]) if not pd.isna(row["total_time_hr"]) else np.inf,
-                "total_cost_vnd": float(row["total_cost_vnd"]) if not pd.isna(row["total_cost_vnd"]) else np.inf,
+            try:
+                dist = float(row["distance_km"])
+                time = float(row["total_time_hr"]) if not pd.isna(row["total_time_hr"]) else np.inf
+                travel_cost = float(row["travel_cost_vnd"]) if not pd.isna(row["travel_cost_vnd"]) else np.inf
+            except Exception as e:
+                raise ValueError(
+                    f"Invalid numeric value in backup_to_failed_bts.csv "
+                    f"at power={row['power_id']} bts={row['bts_id']}: {e}"
+                )
+
+            m[(row["power_id"], row["bts_id"])] = {
+                "distance_km": dist,
+                "total_time_hr": time,
+                "travel_cost_vnd": travel_cost,
                 "note": row.get("note", "")
             }
         return m
@@ -600,7 +614,7 @@ class GA_PSOSolver:
 
             # COST
             # (1) Deployment + transport cost (from backup_to_failed_bts.csv)
-            cost_deploy = float(pinfo.get("total_cost_vnd", 0.0))
+            cost_deploy = float(pinfo.get("travel_cost_vnd", 0.0))
 
             # (2) Operating cost 24h (from backup_power.csv)
             prow = self.dm.backups[self.dm.backups["power_id"] == power_id]
@@ -771,13 +785,13 @@ class GA_PSOSolver:
                 bpop = float(self.dm.failed_bts[self.dm.failed_bts["site_id"] == bts_id]["pop_covered"].values[0])
 
                 pinfo = self.power_travel_map.get((power_id, bts_id), {})
-                cost_deploy = pinfo.get("total_cost_vnd", 0.0)
+                cost_deploy = pinfo.get("travel_cost_vnd", 0.0)
 
                 prow = self.dm.backups[self.dm.backups["power_id"] == power_id]
                 cost_operating = float(prow.iloc[0].get("cost_vnd_24h", 0.0)) if not prow.empty else 0.0
 
-                cost = cost_deploy + cost_operating
-                eff = (bpop / max(cost, 1.0))
+                cost = max(cost_deploy + cost_operating, 1e-6)
+                eff = bpop / cost
 
                 eff_list.append(("power", bts_id, eff, cost))
             # sort ascending by eff (least effective first) and drop until cost<=budget
@@ -1019,7 +1033,7 @@ class GA_PSOSolver:
             total_time_hr = float(pinfo["total_time_hr"])
 
             # travel_cost_vnd = chi phí di chuyển
-            travel_cost_vnd = float(pinfo["total_cost_vnd"])
+            travel_cost_vnd = float(pinfo["travel_cost_vnd"])
 
             prow = self.dm.backups[self.dm.backups["power_id"] == power_id].iloc[0]
             operating_cost_vnd_24h = float(prow.get("cost_vnd_24h", 0.0))
