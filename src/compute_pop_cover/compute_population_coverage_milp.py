@@ -634,22 +634,22 @@ def main_compute_all(method="MILP_GUROBI"):
     # Compose final summary
     summary = {
         "method": method,
-        "total_population": float(total_pop),
-        "population_covered_by_active_bts": float(active_union_pop),
-        "population_outage_due_failed_bts": float(outage_pop),
-        "lost_coverage_percent": float(lost_coverage_percent),
-        "failed_union_population": float(failed_union_pop),
-        "population_restored_by_cows": float(cow_union_pop_in_outage),
-        "population_restored_by_power": float(power_union_pop_in_outage),
-        "population_restored_total": float(restored_total_in_outage),
-        "coverage_restored_percent_of_outage": float(coverage_restored_percent_of_outage),
-        "coverage_after_restoration_percent": float(coverage_after_restoration_percent),
-        "cow_union_pop_total": float(cow_union_pop_total),
-        "power_union_pop_total": float(power_union_pop_total),
-        "max_deploy_time_hr": float(max_deploy_time),
-        "total_deployment_cost_vnd": float(total_deployment_cost),
-        "cow_count_used": int(cow_count),
-        "power_units_used": int(power_count)
+        "total_population": float(total_pop), # tổng dân số toàn khu vực
+        "population_covered_by_active_bts": float(active_union_pop), # dân số được bao phủ bởi các trạm BTS còn hoạt động
+        "population_outage_due_failed_bts": float(outage_pop), # dân số bị mất sóng do các trạm BTS bị hỏng và mất nguồn
+        "lost_coverage_percent": float(lost_coverage_percent), # phần trăm dân số mất sóng trước khi khôi phục
+        "coverage_after_restoration_percent": float(coverage_after_restoration_percent), # phần trăm dân số được bao phủ sau khi khôi phục
+        "coverage_restored_percent_of_outage": float(coverage_restored_percent_of_outage), # phần trăm dân số mất sóng được khôi phục
+        "failed_union_population": float(failed_union_pop), # dân số trong vùng phủ của các trạm BTS bị hỏng
+        "population_restored_by_cows": float(cow_union_pop_in_outage), # dân số được khôi phục bởi các COW
+        "population_restored_by_power": float(power_union_pop_in_outage), # dân số được khôi phục bởi các nguồn điện di động
+        "population_restored_total": float(restored_total_in_outage), # tổng dân số được khôi phục (COW + nguồn điện)
+        "cow_union_pop_total": float(cow_union_pop_total), # tổng dân số trong vùng phủ của các COW
+        "power_union_pop_total": float(power_union_pop_total), # tổng dân số trong vùng phủ của các nguồn điện di động
+        "max_deploy_time_hr": float(max_deploy_time), # thời gian triển khai tối đa (giờ)
+        "total_deployment_cost_vnd": float(total_deployment_cost), # tổng chi phí triển khai (VND)
+        "cow_count_used": int(cow_count), # số lượng COW đã sử dụng
+        "power_units_used": int(power_count) # số lượng nguồn điện di động đã sử dụng
     }
 
     out_json = SUMMARY_DIR / f"coverage_report_{method.lower()}.json"

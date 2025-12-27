@@ -23,7 +23,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 REPORT_PATHS = {
     "MILP": PROJECT_ROOT / "outputs/summary/milp/coverage_report_milp_gurobi.json",
     "GA-PSO": PROJECT_ROOT / "outputs/summary/ga_pso/coverage_report_ga_pso.json",
-    "Hybrid": PROJECT_ROOT / "outputs/summary/milp_ga_pso/coverage_report_milp_ga_pso.json",
+    "Hybrid": PROJECT_ROOT / "outputs/summary/milp_ga_pso_B/coverage_report_milp_ga_pso.json",
 }
 
 OUTPUT_DIR = PROJECT_ROOT / "outputs/simulation/comparison"

@@ -32,7 +32,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 REPORTS = {
     "MILP": PROJECT_ROOT / "outputs/summary/milp/coverage_report_milp_gurobi.json",
     "GA_PSO": PROJECT_ROOT / "outputs/summary/ga_pso/coverage_report_ga_pso.json",
-    "MILP_GA_PSO": PROJECT_ROOT / "outputs/summary/milp_ga_pso/coverage_report_milp_ga_pso.json",
+    "MILP_GA_PSO": PROJECT_ROOT / "outputs/summary/milp_ga_pso_B/coverage_report_milp_ga_pso.json",
 }
 
 OUTPUT_DIR = PROJECT_ROOT / "outputs/simulation/coverage"

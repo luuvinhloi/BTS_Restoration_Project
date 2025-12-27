@@ -36,14 +36,14 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DATA_ROOT = PROJECT_ROOT / "data" / "processed"
 
 PATHS = {
-    'J_sites': DATA_ROOT / "position_I_J" / "J_sites.csv",
+    'J_sites': DATA_ROOT / "position_I_J" / "J_sites_B.csv",
     'cow_dataset': DATA_ROOT / "cow" / "cow_dataset.csv",
     'backup_power': DATA_ROOT / "backup_power" / "backup_power.csv",
-    'failed_bts': DATA_ROOT / "damage_bts" / "failed_bts.csv",
+    'failed_bts': DATA_ROOT / "damage_bts" / "failed_bts_B.csv",
     'flood_tif': DATA_ROOT / "flood" / "flood_depth_combined_clean.tif",
     'roads_graph': DATA_ROOT / "road" / "roads_flooded.graphml",
-    'cow_travel': DATA_ROOT / "travel_cost" / "cow_to_J_sites.csv",
-    'power_travel': DATA_ROOT / "travel_cost" / "backup_to_failed_bts.csv"
+    'cow_travel': DATA_ROOT / "travel_cost" / "cow_to_J_sites_B.csv",
+    'power_travel': DATA_ROOT / "travel_cost" / "backup_to_failed_bts_B.csv"
 }
 
 BUDGET_MAX = 1e9  # 1 tỷ VNĐ

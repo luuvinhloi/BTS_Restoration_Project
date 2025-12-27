@@ -8,7 +8,7 @@ Inputs (MILP_GA-PSO):
  - outputs/results_hybrid/solution_power_assignments.csv
 
 Output:
- - outputs/summary/milp_ga_pso/*.csv, *.geojson, coverage_report_hybrid.json
+ - outputs/summary/milp_ga_pso_B/*.csv, *.geojson, coverage_report_hybrid.json
 
 Author: Generated for user (Lợi Lưu) — 2025
 """
@@ -39,8 +39,8 @@ CLEANED_DIR = PROJECT_ROOT / "data" / "cleaned"
 OUT_DIR = PROJECT_ROOT / "outputs"
 
 # GA-PSO assignment results (expected)
-ASSIGN_COW_HYBRID = OUT_DIR / "results_hybrid_new" / "solution_cow_assignments.csv"
-ASSIGN_POWER_HYBRID = OUT_DIR / "results_hybrid_new" / "solution_power_assignments.csv"
+ASSIGN_COW_HYBRID = OUT_DIR / "results_hybrid" / "solution_cow_assignments.csv"
+ASSIGN_POWER_HYBRID = OUT_DIR / "results_hybrid" / "solution_power_assignments.csv"
 
 # Inputs reused from MILP pipeline
 POP_RASTER = CLEANED_DIR / "pop_hue_clean.tif"
@@ -51,7 +51,7 @@ COWS = PROCESSED_DIR / "cow" / "cow_dataset.csv"
 BOUNDARY_GEOJSON = CLEANED_DIR / "hue_boundary_clean.geojson"
 
 # Output folder for GA-PSO summary
-SUMMARY_DIR = OUT_DIR / "summary_new" / "milp_ga_pso"
+SUMMARY_DIR = OUT_DIR / "summary" / "milp_ga_pso"
 SUMMARY_DIR.mkdir(parents=True, exist_ok=True)
 
 # -------------------------
@@ -250,7 +250,7 @@ def compute_active_failed_unions_and_stats():
 # Compute COW coverage from hybrid assignments
 # -------------------------
 def compute_cow_coverage_from_hybrid(assign_path: Path, j_sites_path: Path, cows_table_path: Path,
-                                    method_tag="milp_ga_pso", outage_geom=None):
+                                    method_tag="milp_ga_pso_B", outage_geom=None):
     raster_crs, nodata = read_raster_crs_and_nodata(POP_RASTER)
     boundary = gpd.read_file(BOUNDARY_GEOJSON)
     if boundary.crs:
@@ -429,7 +429,7 @@ def compute_cow_coverage_from_hybrid(assign_path: Path, j_sites_path: Path, cows
 # Compute POWER coverage from HYBRID assignments
 # -------------------------
 def compute_power_coverage_from_hybrid(assign_path: Path, failed_bts_path: Path,
-                                      method_tag="milp_ga_pso", outage_geom=None):
+                                      method_tag="milp_ga_pso_B", outage_geom=None):
     raster_crs, nodata = read_raster_crs_and_nodata(POP_RASTER)
     boundary = gpd.read_file(BOUNDARY_GEOJSON)
     if boundary.crs:
@@ -600,8 +600,8 @@ def main_compute_all(method="MILP_GA_PSO"):
     lost_coverage_percent = round(outage_pop / total_pop * 100, 2) if total_pop > 0 else 0.0
 
     # compute GA-PSO results
-    cow_results = compute_cow_coverage_from_hybrid(ASSIGN_COW_HYBRID, J_SITES, COWS, method_tag="milp_ga_pso", outage_geom=outage_geom)
-    power_results = compute_power_coverage_from_hybrid(ASSIGN_POWER_HYBRID, FAILED_BTS, method_tag="milp_ga_pso", outage_geom=outage_geom)
+    cow_results = compute_cow_coverage_from_hybrid(ASSIGN_COW_HYBRID, J_SITES, COWS, method_tag="milp_ga_pso_B", outage_geom=outage_geom)
+    power_results = compute_power_coverage_from_hybrid(ASSIGN_POWER_HYBRID, FAILED_BTS, method_tag="milp_ga_pso_B", outage_geom=outage_geom)
 
     cow_union_pop_in_outage = cow_results.get("cow_union_pop_in_outage", 0.0)
     cow_union_pop_total = cow_results.get("cow_union_pop", 0.0)
@@ -634,23 +634,6 @@ def main_compute_all(method="MILP_GA_PSO"):
 
     coverage_after_restoration_percent = round((active_union_pop + restored_total_in_outage) / total_pop * 100, 2) if total_pop > 0 else 0.0
     coverage_restored_percent_of_outage = round((restored_total_in_outage / outage_pop * 100) if outage_pop > 0 else 0.0, 2)
-
-    # max deployment time
-    max_deploy_time = cow_max_deploy
-    # optionally read deployment_time from power assignments if present
-    # try:
-    #     if ASSIGN_POWER_HYBRID.exists():
-    #         pa = pd.read_csv(ASSIGN_POWER_HYBRID)
-    #         if "deployment_time_hr" in pa.columns:
-    #             max_dep_power = pa["deployment_time_hr"].max(skipna=True)
-    #             if not np.isnan(max_dep_power) and max_dep_power > max_deploy_time:
-    #                 max_deploy_time = float(max_dep_power)
-    #         elif "total_time_hr" in pa.columns:
-    #             max_dep_power = pa["total_time_hr"].astype(float).max(skipna=True)
-    #             if not np.isnan(max_dep_power) and max_dep_power > max_deploy_time:
-    #                 max_deploy_time = float(max_dep_power)
-    # except Exception:
-    #     pass
 
     # max deployment time (HYBRID): makespan from solution files
     max_deploy_time = cow_max_deploy
@@ -689,12 +672,12 @@ def main_compute_all(method="MILP_GA_PSO"):
         "population_covered_by_active_bts": float(active_union_pop),
         "population_outage_due_failed_bts": float(outage_pop),
         "lost_coverage_percent": float(lost_coverage_percent),
+        "coverage_after_restoration_percent": float(coverage_after_restoration_percent),
+        "coverage_restored_percent_of_outage": float(coverage_restored_percent_of_outage),
         "failed_union_population": float(failed_union_pop),
         "population_restored_by_cows": float(cow_union_pop_in_outage),
         "population_restored_by_power": float(power_union_pop_in_outage),
         "population_restored_total": float(restored_total_in_outage),
-        "coverage_restored_percent_of_outage": float(coverage_restored_percent_of_outage),
-        "coverage_after_restoration_percent": float(coverage_after_restoration_percent),
         "cow_union_pop_total": float(cow_union_pop_total),
         "power_union_pop_total": float(power_union_pop_total),
         "max_deploy_time_hr": float(max_deploy_time),

@@ -32,14 +32,11 @@ from src.preprocessing.travel_cost.compute_travel_costs import (
 
 # Stage 6: Optimization
 # MILP Solver
-# from src.optimization.MILP.milp_solver import main_solve as milp_main
-from src.optimization.MILP.milp_solver_new import main_solve as milp_main_new
+from src.optimization.MILP.milp_solver import main_solve as milp_main
 # GA-PSO Solver
-# from src.optimization.GA_PSO.ga_pso_solver import run_from_config as ga_pso_main
-from src.optimization.GA_PSO.ga_pso_solver_new import run_from_config as ga_pso_main
+from src.optimization.GA_PSO.ga_pso_solver import run_from_config as ga_pso_main
 # Hybrid MILP + GA-PSO Solver
-# from src.optimization.MILP_GA_PSO.hybrid_milp_ga_pso import run_hybrid
-from src.optimization.MILP_GA_PSO.hybrid_milp_ga_pso_new import run_hybrid
+from src.optimization.MILP_GA_PSO.hybrid_milp_ga_pso import run_hybrid
 
 # Stage 7: Population coverage computation
 from src.compute_pop_cover.compute_population_coverage_milp import (
@@ -106,7 +103,7 @@ def run_pipeline(config_path):
     # )
 
     print("Stage 5: Generate data sets I, J and Calculate travel time and costs")
-    # feature_extraction_final(cfg, str(PROJECT_ROOT / "data" / "processed" / "position_I_J"))
+    feature_extraction_final(cfg, str(PROJECT_ROOT / "data" / "processed" / "position_I_J"))
 
     print("Computing travel time & cost matrix...")
     print("Computing travel time & cost for COW to J_sites...")
@@ -134,11 +131,7 @@ def run_pipeline(config_path):
 
     if method == "MILP":
         print("Solving with MILP (Full model - lexicographic)...")
-        # results = milp_main(cfg, processed_dir, outputs_dir)
-
-        # NEW
-        solver_name = cfg.get("solver_name", "GUROBI").upper()
-        results = milp_main_new(cfg, processed_dir, outputs_dir, solver_name=solver_name)
+        results = milp_main(cfg, processed_dir, outputs_dir)
 
         print("MILP finished. Results object returned.")
 
@@ -165,28 +158,28 @@ def run_pipeline(config_path):
         raise ValueError(f"Unknown method '{method}'. Must be MILP, GA_PSO, or HYBRID.")
 
     print("Stage 7: Computing population coverage...")
-    try:
-        if method == "MILP":
-            print("Computing population coverage for MILP...")
-            coverage_summary = compute_coverage_milp(method="MILP_GUROBI")
-
-        elif method == "GA_PSO":
-            print("Computing population coverage for GA-PSO...")
-            coverage_summary = compute_coverage_gapso(method="GA_PSO")
-
-        elif method == "MILP_GA_PSO":
-            print("Computing population coverage for Hybrid MILP + GA-PSO...")
-            coverage_summary = compute_coverage_hybrid(method="MILP_GA_PSO")
-
-        else:
-            raise ValueError(f"Unsupported method for coverage: {method}")
-
-        print("Coverage computation finished successfully.")
-        print("Coverage summary:", coverage_summary)
-
-    except Exception as e:
-        print("Population coverage computation failed:")
-        print(e)
+    # try:
+    #     if method == "MILP":
+    #         print("Computing population coverage for MILP...")
+    #         coverage_summary = compute_coverage_milp(method="MILP_GUROBI")
+    #
+    #     elif method == "GA_PSO":
+    #         print("Computing population coverage for GA-PSO...")
+    #         coverage_summary = compute_coverage_gapso(method="GA_PSO")
+    #
+    #     elif method == "MILP_GA_PSO":
+    #         print("Computing population coverage for Hybrid MILP + GA-PSO...")
+    #         coverage_summary = compute_coverage_hybrid(method="MILP_GA_PSO")
+    #
+    #     else:
+    #         raise ValueError(f"Unsupported method for coverage: {method}")
+    #
+    #     print("Coverage computation finished successfully.")
+    #     print("Coverage summary:", coverage_summary)
+    #
+    # except Exception as e:
+    #     print("Population coverage computation failed:")
+    #     print(e)
 
     #  Simulation
     print("Stage 8: Simulation...")

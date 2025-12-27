@@ -582,7 +582,7 @@ def compute_power_coverage_from_gapso(assign_path: Path, failed_bts_path: Path,
 # -------------------------
 def main_compute_all(method="GA_PSO"):
     method_key = str(method).lower()
-    method_summary_dir = OUT_DIR / "summary" / method_key
+    method_summary_dir = OUT_DIR / "summary_new" / method_key
     method_summary_dir.mkdir(parents=True, exist_ok=True)
 
     global SUMMARY_DIR
@@ -635,23 +635,6 @@ def main_compute_all(method="GA_PSO"):
     coverage_after_restoration_percent = round((active_union_pop + restored_total_in_outage) / total_pop * 100, 2) if total_pop > 0 else 0.0
     coverage_restored_percent_of_outage = round((restored_total_in_outage / outage_pop * 100) if outage_pop > 0 else 0.0, 2)
 
-    # max deployment time
-    max_deploy_time = cow_max_deploy
-    # optionally read deployment_time from power assignments if present
-    # try:
-    #     if ASSIGN_POWER_GAPSO.exists():
-    #         pa = pd.read_csv(ASSIGN_POWER_GAPSO)
-    #         if "deployment_time_hr" in pa.columns:
-    #             max_dep_power = pa["deployment_time_hr"].max(skipna=True)
-    #             if not np.isnan(max_dep_power) and max_dep_power > max_deploy_time:
-    #                 max_deploy_time = float(max_dep_power)
-    #         elif "total_time_hr" in pa.columns:
-    #             max_dep_power = pa["total_time_hr"].astype(float).max(skipna=True)
-    #             if not np.isnan(max_dep_power) and max_dep_power > max_deploy_time:
-    #                 max_deploy_time = float(max_dep_power)
-    # except Exception:
-    #     pass
-
     # max deployment time (GA-PSO): directly from solution files
     max_deploy_time = cow_max_deploy
 
@@ -689,12 +672,12 @@ def main_compute_all(method="GA_PSO"):
         "population_covered_by_active_bts": float(active_union_pop),
         "population_outage_due_failed_bts": float(outage_pop),
         "lost_coverage_percent": float(lost_coverage_percent),
+        "coverage_after_restoration_percent": float(coverage_after_restoration_percent),
+        "coverage_restored_percent_of_outage": float(coverage_restored_percent_of_outage),
         "failed_union_population": float(failed_union_pop),
         "population_restored_by_cows": float(cow_union_pop_in_outage),
         "population_restored_by_power": float(power_union_pop_in_outage),
         "population_restored_total": float(restored_total_in_outage),
-        "coverage_restored_percent_of_outage": float(coverage_restored_percent_of_outage),
-        "coverage_after_restoration_percent": float(coverage_after_restoration_percent),
         "cow_union_pop_total": float(cow_union_pop_total),
         "power_union_pop_total": float(power_union_pop_total),
         "max_deploy_time_hr": float(max_deploy_time),
