@@ -38,19 +38,20 @@ DEVICES = {
     "GENS_L": {
         "type": "GENSET",
         "model": "KPS KP14000Q-3D-10KW",
-        "power_kW": 10,
+        "power_kW": 10.0,
         "consumption_L_kWh": 0.35 # mức tiêu hao nhiên liệu (lít/kWh)
     },
     "GENS_S": {
         "type": "GENSET",
         "model": "KPS KP7000Q-5.0KW",
-        "power_kW": 5,
+        "power_kW": 5.0,
         "consumption_L_kWh": 0.35 # mức tiêu hao nhiên liệu (lít/kWh)
     },
     "BAT_10": {
         "type": "BATTERY",
         "model": "48V 200Ah LiFePO4 (10 kWh) rack",
         "energy_kWh": 10,
+        "power_kW": 9.6,              # 48V × 200A
         "usable_fraction": 0.8, # sử dụng 80% dung lượng pin
         "roundtrip_efficiency": 0.98 # hiệu suất sạc xả
     },
@@ -58,6 +59,7 @@ DEVICES = {
         "type": "BATTERY",
         "model": "EV48100-T(15S) 48V 100Ah (4.8 kWh)",
         "energy_kWh": 4.8,
+        "power_kW": 4.8,
         "usable_fraction": 0.8,
         "roundtrip_efficiency": 0.98
     },
@@ -65,6 +67,7 @@ DEVICES = {
         "type": "BATTERY",
         "model": "EV48100-T(16S) 51.2V 100Ah (5.12 kWh)",
         "energy_kWh": 5.12,
+        "power_kW": 5.12,
         "usable_fraction": 0.8,
         "roundtrip_efficiency": 0.98
     }
@@ -179,6 +182,7 @@ def generate_backup_power_dataset(outage_csv_path, output_csv_path):
             "base_name": base["name"],
             "type": dev["type"],
             "model": dev["model"],
+            "power_kW": dev["power_kW"],
             "runtime_h": round(runtime_h, 2),
             "cost_vnd_24h": int(cost_24h),
             "resource_amount": round(resource_amount, 2)

@@ -1,0 +1,68 @@
+C:\Users\Administrator\Desktop\DA\BTS_Restoration_Project-main\.venv\Scripts\python.exe "C:\Users\Administrator\Desktop\DA\BTS_Restoration_Project-main - Copy - Copy\main.py"
+Stage 1: Data Cleaning...
+Stage 2: Generating BTS network, Generating COW dataset and Generating Backup Power dataset...
+Generating COW dataset...
+Generating COW dataset...
+Generating Backup Power dataset
+Stage 3: Generating Flood and Generating Flood road...
+Generating Flood roads...
+Stage 4: Generating damage scenario...
+Stage 5: Generate data sets I, J and Calculate travel time and costs
+Computing travel time & cost matrix...
+Computing travel time & cost for COW to J_sites...
+Computing travel time & cost for Backup Power → Failed BTS...
+Stage 6: Optimization
+Running Hybrid MILP + GA-PSO (Phương pháp 3)...
+Loading datasets...
+Loaded roads graph 47296 nodes
+Building coverage matrices...
+MILP presolve: 2 seed solutions generated.
+Initializing GA-PSO population...
+Initial best fitness = 0.09048183120464083
+Iter 0: gbest_f = 0.090482
+Iter 10: gbest_f = 0.094743
+Iter 20: gbest_f = 0.106133
+Iter 30: gbest_f = 0.108964
+Iter 40: gbest_f = 0.111120
+Iter 50: gbest_f = 0.115589
+Iter 60: gbest_f = 0.120570
+Iter 70: gbest_f = 0.122067
+Iter 80: gbest_f = 0.124222
+Iter 90: gbest_f = 0.125815
+Iter 100: gbest_f = 0.126911
+Iter 110: gbest_f = 0.129349
+Iter 120: gbest_f = 0.131411
+Iter 130: gbest_f = 0.133200
+Iter 140: gbest_f = 0.135495
+Iter 150: gbest_f = 0.137343
+Iter 160: gbest_f = 0.138066
+Iter 170: gbest_f = 0.138466
+Iter 180: gbest_f = 0.139025
+Iter 190: gbest_f = 0.140974
+Iter 200: gbest_f = 0.142530
+Iter 210: gbest_f = 0.142898
+Iter 220: gbest_f = 0.143049
+Iter 230: gbest_f = 0.143207
+Iter 240: gbest_f = 0.143656
+Iter 250: gbest_f = 0.144126
+Iter 260: gbest_f = 0.144156
+Iter 270: gbest_f = 0.144816
+Iter 280: gbest_f = 0.145981
+Iter 290: gbest_f = 0.146696
+GA-PSO best fitness 0.146729923267144
+Refined best fitness 0.11872246449308027
+Saved hybrid_result_summary.json
+Wrote BTS_Restoration_Project\outputs\results_hybrid\solution_cow_assignments.csv
+Wrote BTS_Restoration_Project\outputs\results_hybrid\solution_power_assignments.csv
+Wrote BTS_Restoration_Project\outputs\results_hybrid\solution_summary.json
+Exported detailed solution files: {'cow_csv': 'BTS_Restoration_Project\\outputs\\results_hybrid\\solution_cow_assignments.csv', 'power_csv': 'BTS_Restoration_Project\\outputs\\results_hybrid\\solution_power_assignments.csv', 'summary_json': 'BTS_Restoration_Project\\outputs\\results_hybrid\\solution_summary.json', 'metrics': {'fitness': 0.11872246449311322, 'Rcov': 0.11951316229186423, 'max_time_hr': 1.897674717081516, 'total_cost_vnd': 532001034.7604256, 'covered_pop': 2222327.6847488005}}
+
+=== Hybrid optimization finished ===
+Best fitness: 0.11872246449308027
+Hybrid output saved to hybrid_result_summary.json
+Stage 7: Computing population coverage...
+Stage 8: Simulation...
+Pipeline finished successfully.
+Runtime: 6000.082448699999
+
+Process finished with exit code 0

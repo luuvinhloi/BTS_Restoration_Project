@@ -29,13 +29,13 @@ POP_RASTER = PROJECT_ROOT / "data/cleaned/pop_hue_clean.tif"
 BOUNDARY_PATH = PROJECT_ROOT / "data/cleaned/hue_boundary_clean.geojson"
 
 BTS_ALL_PATH = PROJECT_ROOT / "data/processed/bts_network/bts_ga.csv"
-ACTIVE_BTS_PATH = PROJECT_ROOT / "data/processed/damage_bts/active_bts.csv"
-FAILED_BTS_PATH = PROJECT_ROOT / "data/processed/damage_bts/failed_bts.csv"
+ACTIVE_BTS_PATH = PROJECT_ROOT / "data/processed/damage_bts/active_bts_B.csv"
+FAILED_BTS_PATH = PROJECT_ROOT / "data/processed/damage_bts/failed_bts_B.csv"
 
-J_SITES_PATH = PROJECT_ROOT / "data/processed/position_I_J/J_sites.csv"
+J_SITES_PATH = PROJECT_ROOT / "data/processed/position_I_J/J_sites_B.csv"
 COW_DATASET_PATH = PROJECT_ROOT / "data/processed/cow/cow_dataset.csv"
 
-OUTPUT_DIR = PROJECT_ROOT / "outputs/simulation/coverage"
+OUTPUT_DIR = PROJECT_ROOT / "outputs/simulation_B/coverage"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 METHODS = {
@@ -44,12 +44,12 @@ METHODS = {
         "power": PROJECT_ROOT / "outputs/milp_runs/milp_gurobi/assignments_power_GUROBI.csv"
     },
     "GA_PSO": {
-        "cow": PROJECT_ROOT / "outputs/results_ga_pso/solution_cow_assignments.csv",
-        "power": PROJECT_ROOT / "outputs/results_ga_pso/solution_power_assignments.csv"
+        "cow": PROJECT_ROOT / "outputs/results_ga_pso_B/solution_cow_assignments.csv",
+        "power": PROJECT_ROOT / "outputs/results_ga_pso_B/solution_power_assignments.csv"
     },
     "MILP_GA_PSO": {
-        "cow": PROJECT_ROOT / "outputs/results_hybrid/solution_cow_assignments.csv",
-        "power": PROJECT_ROOT / "outputs/results_hybrid/solution_power_assignments.csv"
+        "cow": PROJECT_ROOT / "outputs/results_hybrid_B/solution_cow_assignments.csv",
+        "power": PROJECT_ROOT / "outputs/results_hybrid_B/solution_power_assignments.csv"
     }
 }
 

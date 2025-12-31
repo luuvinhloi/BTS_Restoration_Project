@@ -1,0 +1,20 @@
+{
+  "method": "MILP_GA_PSO",
+  "total_population": 1186740.625,
+  "pre_disaster_covered_population": 1159475.625,
+  "population_covered_by_active_bts": 476452.1875,
+  "population_outage_due_failed_bts": 718903.5625,
+  "lost_coverage_percent": 62.0,
+  "coverage_restored_percent_of_outage": 84.56,
+  "coverage_after_restoration_percent": 93.52,
+  "failed_union_population": 1153716.25,
+  "population_restored_by_cows": 476280.21875,
+  "population_restored_by_power": 480787.0,
+  "population_restored_total": 607909.625,
+  "cow_union_pop_total": 611137.75,
+  "power_union_pop_total": 825408.875,
+  "max_deploy_time_hr": 1.897674717081516,
+  "total_deployment_cost_vnd": 496869582.24925214,
+  "cow_count_used": 21,
+  "power_units_used": 150
+}

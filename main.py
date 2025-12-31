@@ -103,7 +103,7 @@ def run_pipeline(config_path):
     # )
 
     print("Stage 5: Generate data sets I, J and Calculate travel time and costs")
-    feature_extraction_final(cfg, str(PROJECT_ROOT / "data" / "processed" / "position_I_J"))
+    # feature_extraction_final(cfg, str(PROJECT_ROOT / "data" / "processed" / "position_I_J"))
 
     print("Computing travel time & cost matrix...")
     print("Computing travel time & cost for COW to J_sites...")
@@ -126,90 +126,90 @@ def run_pipeline(config_path):
     # )
 
     print("Stage 6: Optimization")
-    processed_dir = str(PROJECT_ROOT / "data" / "processed")
-    outputs_dir = str(PROJECT_ROOT / "outputs" / "milp_runs_new")
-
-    if method == "MILP":
-        print("Solving with MILP (Full model - lexicographic)...")
-        results = milp_main(cfg, processed_dir, outputs_dir)
-
-        print("MILP finished. Results object returned.")
-
-    elif method == "GA_PSO":
-        print("Running GA-PSO Hybrid (Method 2)...")
-        runs = int(cfg.get("ga_pso", {}).get("runs", 1))
-        for i in range(runs):
-            run_out_dir = str(PROJECT_ROOT / "outputs" / f"ga_pso_run_{i + 1:02d}")
-            print(f"  • Run {i + 1}/{runs} → output: {run_out_dir}")
-            # call module mới
-            summary = ga_pso_main(cfg)
-            print(f"Completed Run {i + 1}: best_fitness={summary.fitness}")
-
-    elif method == "MILP_GA_PSO":
-        print("Running Hybrid MILP + GA-PSO (Phương pháp 3)...")
-        max_iter = int(cfg.get("hybrid", {}).get("max_iter", 300))
-        top_k = int(cfg.get("hybrid", {}).get("top_k", 5))
-        result = run_hybrid(max_iter=max_iter, top_k=top_k)
-        print("\n=== Hybrid optimization finished ===")
-        print("Best fitness:", result["refined_best_f"])
-        print("Hybrid output saved to hybrid_result_summary.json")
-
-    else:
-        raise ValueError(f"Unknown method '{method}'. Must be MILP, GA_PSO, or HYBRID.")
+    # processed_dir = str(PROJECT_ROOT / "data" / "processed")
+    # outputs_dir = str(PROJECT_ROOT / "outputs" / "milp_runs_new")
+    #
+    # if method == "MILP":
+    #     print("Solving with MILP (Full model - lexicographic)...")
+    #     results = milp_main(cfg, processed_dir, outputs_dir)
+    #
+    #     print("MILP finished. Results object returned.")
+    #
+    # elif method == "GA_PSO":
+    #     print("Running GA-PSO Hybrid (Method 2)...")
+    #     runs = int(cfg.get("ga_pso", {}).get("runs", 1))
+    #     for i in range(runs):
+    #         run_out_dir = str(PROJECT_ROOT / "outputs" / f"ga_pso_run_{i + 1:02d}")
+    #         print(f"  • Run {i + 1}/{runs} → output: {run_out_dir}")
+    #         # call module mới
+    #         summary_A = ga_pso_main(cfg)
+    #         print(f"Completed Run {i + 1}: best_fitness={summary_A.fitness}")
+    #
+    # elif method == "MILP_GA_PSO":
+    #     print("Running Hybrid MILP + GA-PSO (Phương pháp 3)...")
+    #     max_iter = int(cfg.get("hybrid", {}).get("max_iter", 300))
+    #     top_k = int(cfg.get("hybrid", {}).get("top_k", 5))
+    #     result = run_hybrid(max_iter=max_iter, top_k=top_k)
+    #     print("\n=== Hybrid optimization finished ===")
+    #     print("Best fitness:", result["refined_best_f"])
+    #     print("Hybrid output saved to hybrid_result_summary.json")
+    #
+    # else:
+    #     raise ValueError(f"Unknown method '{method}'. Must be MILP, GA_PSO, or HYBRID.")
 
     print("Stage 7: Computing population coverage...")
-    # try:
-    #     if method == "MILP":
-    #         print("Computing population coverage for MILP...")
-    #         coverage_summary = compute_coverage_milp(method="MILP_GUROBI")
-    #
-    #     elif method == "GA_PSO":
-    #         print("Computing population coverage for GA-PSO...")
-    #         coverage_summary = compute_coverage_gapso(method="GA_PSO")
-    #
-    #     elif method == "MILP_GA_PSO":
-    #         print("Computing population coverage for Hybrid MILP + GA-PSO...")
-    #         coverage_summary = compute_coverage_hybrid(method="MILP_GA_PSO")
-    #
-    #     else:
-    #         raise ValueError(f"Unsupported method for coverage: {method}")
-    #
-    #     print("Coverage computation finished successfully.")
-    #     print("Coverage summary:", coverage_summary)
-    #
-    # except Exception as e:
-    #     print("Population coverage computation failed:")
-    #     print(e)
+    try:
+        if method == "MILP":
+            print("Computing population coverage for MILP...")
+            coverage_summary = compute_coverage_milp(method="MILP_GUROBI")
+
+        elif method == "GA_PSO":
+            print("Computing population coverage for GA-PSO...")
+            coverage_summary = compute_coverage_gapso(method="GA_PSO")
+
+        elif method == "MILP_GA_PSO":
+            print("Computing population coverage for Hybrid MILP + GA-PSO...")
+            coverage_summary = compute_coverage_hybrid(method="MILP_GA_PSO")
+
+        else:
+            raise ValueError(f"Unsupported method for coverage: {method}")
+
+        print("Coverage computation finished successfully.")
+        print("Coverage summary_A:", coverage_summary)
+
+    except Exception as e:
+        print("Population coverage computation failed:")
+        print(e)
 
     #  Simulation
     print("Stage 8: Simulation...")
-    # try:
-    #     print("8.1: Spatial flood map...")
-    #     run_spatial_flood_map()
-    #
-    #     print("8.2: Spatial BTS status map...")
-    #     run_spatial_bts_status()
-    #
-    #     print("8.3: Spatial deployment & coverage maps...")
-    #     run_spatial_deployment_map()
-    #
-    #     print("8.4: Spatial deployment routes...")
-    #     run_spatial_routes_map()
-    #
-    #     print("8.5: Population coverage maps...")
-    #     run_coverage_population_map()
-    #
-    #     print("8.6: Population coverage statistics...")
-    #     run_coverage_population_stats()
-    #
-    #     print("8.7: Method comparison analysis...")
-    #     run_method_comparison()
-    #
-    #     print("Stage 8 completed successfully.")
-    #
-    # except Exception as e:
-    #     print("[ERROR] Simulation stage failed:")
-    #     print(e)
+    try:
+        print("8.1: Spatial flood map...")
+        run_spatial_flood_map()
+
+        print("8.2: Spatial BTS status map...")
+        run_spatial_bts_status()
+
+        print("8.3: Spatial deployment & coverage maps...")
+        run_spatial_deployment_map()
+
+        print("8.4: Spatial deployment routes...")
+        run_spatial_routes_map()
+
+        print("8.5: Population coverage maps...")
+        run_coverage_population_map()
+
+        print("8.6: Population coverage statistics...")
+        run_coverage_population_stats()
+
+        print("8.7: Method comparison analysis...")
+        run_method_comparison()
+
+        print("Stage 8 completed successfully.")
+
+    except Exception as e:
+        print("[ERROR] Simulation stage failed:")
+        print(e)
 
     print("Pipeline finished successfully.")
 

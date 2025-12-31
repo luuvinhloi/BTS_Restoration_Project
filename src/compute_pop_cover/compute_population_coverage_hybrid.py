@@ -2,13 +2,13 @@
 """
 compute_population_coverage_hybrid.py
 
-Compute population coverage summary using MILP_GA-PSO assignment outputs.
+Compute population coverage summary_B using MILP_GA-PSO assignment outputs.
 Inputs (MILP_GA-PSO):
  - outputs/results_hybrid/solution_cow_assignments.csv
  - outputs/results_hybrid/solution_power_assignments.csv
 
 Output:
- - outputs/summary/milp_ga_pso_B/*.csv, *.geojson, coverage_report_hybrid.json
+ - outputs/summary_B/milp_ga_pso_B/*.csv, *.geojson, coverage_report_hybrid.json
 
 Author: Generated for user (Lợi Lưu) — 2025
 """
@@ -25,44 +25,38 @@ from pyproj import Transformer, CRS
 import geopandas as gpd
 import numpy as np
 
-# -------------------------
 # Logging
-# -------------------------
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-# -------------------------
 # Paths (adjust if needed)
-# -------------------------
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 CLEANED_DIR = PROJECT_ROOT / "data" / "cleaned"
 OUT_DIR = PROJECT_ROOT / "outputs"
 
 # GA-PSO assignment results (expected)
-ASSIGN_COW_HYBRID = OUT_DIR / "results_hybrid" / "solution_cow_assignments.csv"
-ASSIGN_POWER_HYBRID = OUT_DIR / "results_hybrid" / "solution_power_assignments.csv"
+ASSIGN_COW_HYBRID = OUT_DIR / "results_hybrid_B" / "solution_cow_assignments.csv"
+ASSIGN_POWER_HYBRID = OUT_DIR / "results_hybrid_B" / "solution_power_assignments.csv"
 
 # Inputs reused from MILP pipeline
+BTS_PRE_DISASTER = PROCESSED_DIR / "bts_network" / "bts_ga.csv"
 POP_RASTER = CLEANED_DIR / "pop_hue_clean.tif"
-FAILED_BTS = PROCESSED_DIR / "damage_bts" / "failed_bts.csv"
-ACTIVE_BTS = PROCESSED_DIR / "damage_bts" / "active_bts.csv"
-J_SITES = PROCESSED_DIR / "position_I_J" / "J_sites.csv"
+FAILED_BTS = PROCESSED_DIR / "damage_bts" / "failed_bts_B.csv"
+ACTIVE_BTS = PROCESSED_DIR / "damage_bts" / "active_bts_B.csv"
+J_SITES = PROCESSED_DIR / "position_I_J" / "J_sites_B.csv"
 COWS = PROCESSED_DIR / "cow" / "cow_dataset.csv"
 BOUNDARY_GEOJSON = CLEANED_DIR / "hue_boundary_clean.geojson"
 
-# Output folder for GA-PSO summary
-SUMMARY_DIR = OUT_DIR / "summary" / "milp_ga_pso"
+# Output folder for GA-PSO summary_B
+SUMMARY_DIR = OUT_DIR / "summary_B" / "milp_ga_pso"
 SUMMARY_DIR.mkdir(parents=True, exist_ok=True)
 
-# -------------------------
 # Utilities
-# -------------------------
 def read_raster_crs_and_nodata(raster_path: Path):
     with rasterio.open(raster_path) as src:
         crs = src.crs.to_string() if src.crs else "EPSG:4326"
         nodata = src.nodata
     return crs, nodata
-
 
 def compute_total_population_from_raster(raster_path: Path):
     with rasterio.open(raster_path) as src:
@@ -70,7 +64,6 @@ def compute_total_population_from_raster(raster_path: Path):
         total = float(arr.filled(0).sum())
     logging.info(f"Total population from raster: {total:,.0f}")
     return total
-
 
 def buffer_point_meters(lon: float, lat: float, radius_m: float, target_crs="EPSG:4326"):
     """Buffer a lon/lat point by radius (meters)."""
@@ -81,7 +74,6 @@ def buffer_point_meters(lon: float, lat: float, radius_m: float, target_crs="EPS
     circle = Point(x_m, y_m).buffer(radius_m)
     geom = mapping(circle)
     return transform_geom("EPSG:3857", target_crs, geom, precision=6)
-
 
 def compute_zonal_sum_geom(geom, raster_path: Path, nodata=None):
     """Return zonal sum (population) for a geometry on raster_path."""
@@ -94,7 +86,6 @@ def compute_zonal_sum_geom(geom, raster_path: Path, nodata=None):
     except Exception as e:
         logging.error("zonal_stats failed: %s", e)
         return 0.0
-
 
 def union_geoms_list(geoms):
     arr = []
@@ -110,7 +101,6 @@ def union_geoms_list(geoms):
     u = unary_union(arr)
     return u if not u.is_empty else None
 
-
 def safe_float(x, default=0.0):
     try:
         if pd.isna(x):
@@ -119,10 +109,7 @@ def safe_float(x, default=0.0):
     except Exception:
         return default
 
-
-# -------------------------
 # Normalization helpers
-# -------------------------
 def normalize_j_site_id(s):
     """Convert 'J_00093' or '93' to uniform string '93'."""
     if pd.isna(s):
@@ -131,7 +118,6 @@ def normalize_j_site_id(s):
     if s.upper().startswith("J_"):
         s = s[2:]
     return s.lstrip("0") or "0"
-
 
 def normalize_bts_id(s):
     """Convert 'BTS_03053' or '03053' to '3053' (string)."""
@@ -142,10 +128,7 @@ def normalize_bts_id(s):
         s = s[4:]
     return s.lstrip("0") or "0"
 
-
-# -------------------------
 # Per-site buffer routine (reused)
-# -------------------------
 def per_site_buffers_and_stats(df_sites, raster_crs, raster_path, nodata, boundary_geom):
     records = []
     geoms = []
@@ -178,10 +161,7 @@ def per_site_buffers_and_stats(df_sites, raster_crs, raster_path, nodata, bounda
         geoms.append(shp)
     return records, geoms
 
-
-# -------------------------
 # Active / Failed Unions (same logic)
-# -------------------------
 def compute_active_failed_unions_and_stats():
     raster_crs, nodata = read_raster_crs_and_nodata(POP_RASTER)
     boundary = gpd.read_file(BOUNDARY_GEOJSON)
@@ -245,12 +225,48 @@ def compute_active_failed_unions_and_stats():
         "outage_pop": outage_pop
     }
 
+def compute_pre_disaster_coverage():
+    """
+    Compute population covered by BTS network before disaster
+    using bts_ga.csv (unique, non-overlapping).
+    """
+    raster_crs, nodata = read_raster_crs_and_nodata(POP_RASTER)
 
-# -------------------------
+    boundary = gpd.read_file(BOUNDARY_GEOJSON)
+    if boundary.crs:
+        boundary = boundary.to_crs(raster_crs)
+    boundary_geom = boundary.geometry.unary_union
+
+    df = pd.read_csv(BTS_PRE_DISASTER)
+
+    geoms = []
+    for _, r in df.iterrows():
+        lon = float(r["longitude"])
+        lat = float(r["latitude"])
+        radius = float(r.get("coverage_radius_m", 3000.0))
+
+        geom = buffer_point_meters(lon, lat, radius, raster_crs)
+        shp = shape(geom).intersection(boundary_geom)
+
+        if not shp.is_empty:
+            geoms.append(shp)
+
+    pre_union = union_geoms_list(geoms)
+
+    pre_covered_pop = compute_zonal_sum_geom(
+        mapping(pre_union) if pre_union else None,
+        POP_RASTER,
+        nodata=nodata
+    )
+
+    return {
+        "pre_union": pre_union,
+        "pre_covered_pop": pre_covered_pop
+    }
+
 # Compute COW coverage from hybrid assignments
-# -------------------------
 def compute_cow_coverage_from_hybrid(assign_path: Path, j_sites_path: Path, cows_table_path: Path,
-                                    method_tag="milp_ga_pso_B", outage_geom=None):
+                                    method_tag="milp_ga_pso", outage_geom=None):
     raster_crs, nodata = read_raster_crs_and_nodata(POP_RASTER)
     boundary = gpd.read_file(BOUNDARY_GEOJSON)
     if boundary.crs:
@@ -424,12 +440,9 @@ def compute_cow_coverage_from_hybrid(assign_path: Path, j_sites_path: Path, cows
         "cow_count": cow_count
     }
 
-
-# -------------------------
 # Compute POWER coverage from HYBRID assignments
-# -------------------------
 def compute_power_coverage_from_hybrid(assign_path: Path, failed_bts_path: Path,
-                                      method_tag="milp_ga_pso_B", outage_geom=None):
+                                      method_tag="milp_ga_pso", outage_geom=None):
     raster_crs, nodata = read_raster_crs_and_nodata(POP_RASTER)
     boundary = gpd.read_file(BOUNDARY_GEOJSON)
     if boundary.crs:
@@ -576,19 +589,20 @@ def compute_power_coverage_from_hybrid(assign_path: Path, failed_bts_path: Path,
         "power_count": power_count
     }
 
-
-# -------------------------
 # Main orchestration
-# -------------------------
 def main_compute_all(method="MILP_GA_PSO"):
     method_key = str(method).lower()
-    method_summary_dir = OUT_DIR / "summary_new" / method_key
+    method_summary_dir = OUT_DIR / "summary_B" / method_key
     method_summary_dir.mkdir(parents=True, exist_ok=True)
 
     global SUMMARY_DIR
     SUMMARY_DIR = method_summary_dir
 
     total_pop = compute_total_population_from_raster(POP_RASTER)
+
+    pre_results = compute_pre_disaster_coverage()
+    pre_disaster_covered_pop = pre_results["pre_covered_pop"]
+    pre_disaster_union = pre_results["pre_union"]
 
     bts_results = compute_active_failed_unions_and_stats()
     active_union_pop = bts_results.get("active_union_pop", 0.0)
@@ -597,11 +611,13 @@ def main_compute_all(method="MILP_GA_PSO"):
     outage_geom = bts_results.get("outage_geom", None)
     active_union = bts_results.get("active_union", None)
 
-    lost_coverage_percent = round(outage_pop / total_pop * 100, 2) if total_pop > 0 else 0.0
+    lost_coverage_percent = round(
+        outage_pop / pre_disaster_covered_pop * 100, 2
+    ) if pre_disaster_covered_pop > 0 else 0.0
 
     # compute GA-PSO results
-    cow_results = compute_cow_coverage_from_hybrid(ASSIGN_COW_HYBRID, J_SITES, COWS, method_tag="milp_ga_pso_B", outage_geom=outage_geom)
-    power_results = compute_power_coverage_from_hybrid(ASSIGN_POWER_HYBRID, FAILED_BTS, method_tag="milp_ga_pso_B", outage_geom=outage_geom)
+    cow_results = compute_cow_coverage_from_hybrid(ASSIGN_COW_HYBRID, J_SITES, COWS, method_tag="milp_ga_pso", outage_geom=outage_geom)
+    power_results = compute_power_coverage_from_hybrid(ASSIGN_POWER_HYBRID, FAILED_BTS, method_tag="milp_ga_pso", outage_geom=outage_geom)
 
     cow_union_pop_in_outage = cow_results.get("cow_union_pop_in_outage", 0.0)
     cow_union_pop_total = cow_results.get("cow_union_pop", 0.0)
@@ -632,7 +648,11 @@ def main_compute_all(method="MILP_GA_PSO"):
         if inter is not None and not inter.is_empty:
             restored_total_in_outage = compute_zonal_sum_geom(mapping(inter), POP_RASTER, nodata=read_raster_crs_and_nodata(POP_RASTER)[1])
 
-    coverage_after_restoration_percent = round((active_union_pop + restored_total_in_outage) / total_pop * 100, 2) if total_pop > 0 else 0.0
+    coverage_after_restoration_percent = round(
+        (active_union_pop + restored_total_in_outage)
+        / pre_disaster_covered_pop * 100, 2
+    ) if pre_disaster_covered_pop > 0 else 0.0
+
     coverage_restored_percent_of_outage = round((restored_total_in_outage / outage_pop * 100) if outage_pop > 0 else 0.0, 2)
 
     # max deployment time (HYBRID): makespan from solution files
@@ -665,15 +685,16 @@ def main_compute_all(method="MILP_GA_PSO"):
     with open(SUMMARY_DIR / f"coverage_layers_{method_key}.geojson", "w", encoding="utf-8") as f:
         json.dump({"type": "FeatureCollection", "features": feats}, f, ensure_ascii=False, indent=2)
 
-    # summary
+    # summary_B
     summary = {
         "method": method,
         "total_population": float(total_pop),
+        "pre_disaster_covered_population": float(pre_disaster_covered_pop),
         "population_covered_by_active_bts": float(active_union_pop),
         "population_outage_due_failed_bts": float(outage_pop),
         "lost_coverage_percent": float(lost_coverage_percent),
-        "coverage_after_restoration_percent": float(coverage_after_restoration_percent),
         "coverage_restored_percent_of_outage": float(coverage_restored_percent_of_outage),
+        "coverage_after_restoration_percent": float(coverage_after_restoration_percent),
         "failed_union_population": float(failed_union_pop),
         "population_restored_by_cows": float(cow_union_pop_in_outage),
         "population_restored_by_power": float(power_union_pop_in_outage),
@@ -690,16 +711,13 @@ def main_compute_all(method="MILP_GA_PSO"):
     with open(out_json, "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2, ensure_ascii=False)
 
-    logging.info("Wrote coverage summary: %s", out_json)
+    logging.info("Wrote coverage summary_B: %s", out_json)
     return summary
 
-
-# -------------------------
 # CLI
-# -------------------------
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="Compute population coverage summary for GA-PSO")
+    parser = argparse.ArgumentParser(description="Compute population coverage summary_B for GA-PSO")
     parser.add_argument("--method", type=str, default="MILP_GA_PSO", help="Method key (MILP_GA_PSO)")
     args = parser.parse_args()
 

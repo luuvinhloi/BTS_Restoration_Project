@@ -925,7 +925,7 @@ def run_lexicographic_for_solver(data, preproc, params, solver_name="CBC", out_d
         index=False
     )
 
-    # summary json
+    # summary_A json
     summary = {
         "solver": solver_name,
         "status": (status1, status2, status3),

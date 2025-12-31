@@ -803,7 +803,7 @@ class GA_PSOSolver:
             index=False
         )
 
-        # summary
+        # summary_A
         summary = {
             "fitness": sol.fitness,
             **sol.metrics

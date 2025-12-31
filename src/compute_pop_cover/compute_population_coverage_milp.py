@@ -16,7 +16,7 @@ Extended compute pipeline that:
     - percentages before/after restoration
     - max deployment time
     - total deployment cost (COW cost + travel + power cost + travel)
-- writes per-site CSVs, geojson outputs and a final summary JSON.
+- writes per-site CSVs, geojson outputs and a final summary_A JSON.
 
 Author: Generated for user (Lợi Lưu) — 2025
 """
@@ -40,10 +40,11 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 CLEANED_DIR = PROJECT_ROOT / "data" / "cleaned"
 OUT_DIR = PROJECT_ROOT / "outputs"
-SUMMARY_DIR = OUT_DIR / "summary" / "milp"
+SUMMARY_DIR = OUT_DIR / "summary_A" / "milp"
 SUMMARY_DIR.mkdir(parents=True, exist_ok=True)
 
 # Input datasets (existing)
+BTS_PRE_DISASTER = PROCESSED_DIR / "bts_network" / "bts_ga.csv"
 POP_RASTER = CLEANED_DIR / "pop_hue_clean.tif"
 FAILED_BTS = PROCESSED_DIR / "damage_bts" / "failed_bts.csv"
 ACTIVE_BTS = PROCESSED_DIR / "damage_bts" / "active_bts.csv"
@@ -274,7 +275,47 @@ def compute_active_failed_unions_and_stats():
         "outage_pop": outage_pop
     }
 
-# New functions to compute COW and POWER coverage from Gurobi assignment outputs
+def compute_pre_disaster_coverage():
+    """
+    Compute:
+      - union geometry of ALL BTS before disaster (from bts_ga.csv)
+      - population uniquely covered by BTS network before disaster
+    """
+    raster_crs, nodata = read_raster_crs_and_nodata(POP_RASTER)
+
+    boundary = gpd.read_file(BOUNDARY_GEOJSON)
+    if boundary.crs:
+        boundary = boundary.to_crs(raster_crs)
+    boundary_geom = boundary.geometry.unary_union
+
+    df = pd.read_csv(BTS_PRE_DISASTER)
+
+    geoms = []
+    for _, r in df.iterrows():
+        lon = float(r["longitude"])
+        lat = float(r["latitude"])
+        radius = float(r.get("coverage_radius_m", 3000))
+
+        geom = buffer_point_meters(lon, lat, radius, target_crs=raster_crs)
+        shp = shape(geom).intersection(boundary_geom)
+
+        if not shp.is_empty:
+            geoms.append(shp)
+
+    pre_union = union_geoms_list(geoms)
+
+    pre_covered_pop = compute_zonal_sum_geom(
+        mapping(pre_union) if pre_union else None,
+        POP_RASTER,
+        nodata=nodata
+    )
+
+    return {
+        "pre_union": pre_union,
+        "pre_covered_pop": pre_covered_pop
+    }
+
+# Compute COW and POWER coverage from Gurobi assignment outputs
 def compute_cow_coverage_from_assignments(assign_path: Path, j_sites_path: Path, method_tag="gurobi", outage_geom=None):
     """
     Read assignments_cow_GUROBI.csv and compute:
@@ -530,8 +571,11 @@ def main_compute_all(method="MILP_GUROBI"):
       - per-site CSVs
       - union GeoJSONs
     """
-    # 1) total pop
+    # 1) total population pre-disaster
     total_pop = compute_total_population_from_raster(POP_RASTER)
+    pre_results = compute_pre_disaster_coverage()
+    pre_disaster_covered_pop = pre_results["pre_covered_pop"]
+    pre_disaster_union = pre_results["pre_union"]
 
     # 2) active / failed bases
     bts_results = compute_active_failed_unions_and_stats()
@@ -542,7 +586,9 @@ def main_compute_all(method="MILP_GUROBI"):
     active_union = bts_results.get("active_union", None)
 
     # lost coverage percent BEFORE restoration
-    lost_coverage_percent = round(outage_pop / total_pop * 100, 2) if total_pop > 0 else 0.0
+    lost_coverage_percent = round(
+        outage_pop / pre_disaster_covered_pop * 100, 2
+    ) if pre_disaster_covered_pop > 0 else 0.0
 
     # 3) cows - from Gurobi assignments
     cow_results = compute_cow_coverage_from_assignments(ASSIGN_COW_GUROBI, J_SITES, method_tag="gurobi", outage_geom=outage_geom)
@@ -577,7 +623,11 @@ def main_compute_all(method="MILP_GUROBI"):
             restored_total_in_outage = compute_zonal_sum_geom(mapping(inter), POP_RASTER, nodata=read_raster_crs_and_nodata(POP_RASTER)[1])
 
     # coverage after restoration percent
-    coverage_after_restoration_percent = round((active_union_pop + restored_total_in_outage) / total_pop * 100, 2) if total_pop > 0 else 0.0
+    coverage_after_restoration_percent = round(
+        (active_union_pop + restored_total_in_outage)
+        / pre_disaster_covered_pop * 100, 2
+    ) if pre_disaster_covered_pop > 0 else 0.0
+
     coverage_restored_percent_of_outage = round((restored_total_in_outage / outage_pop * 100) if outage_pop > 0 else 0.0, 2)
 
     # max deployment time overall
@@ -631,15 +681,16 @@ def main_compute_all(method="MILP_GUROBI"):
     with open(SUMMARY_DIR / f"coverage_layers_{method.lower()}.geojson", "w", encoding="utf-8") as f:
         json.dump({"type":"FeatureCollection","features":features}, f, ensure_ascii=False, indent=2)
 
-    # Compose final summary
+    # Compose final summary_A
     summary = {
         "method": method,
-        "total_population": float(total_pop), # tổng dân số toàn khu vực
+        "total_population": float(total_pop),
+        "pre_disaster_covered_population": float(pre_disaster_covered_pop),
         "population_covered_by_active_bts": float(active_union_pop), # dân số được bao phủ bởi các trạm BTS còn hoạt động
         "population_outage_due_failed_bts": float(outage_pop), # dân số bị mất sóng do các trạm BTS bị hỏng và mất nguồn
         "lost_coverage_percent": float(lost_coverage_percent), # phần trăm dân số mất sóng trước khi khôi phục
-        "coverage_after_restoration_percent": float(coverage_after_restoration_percent), # phần trăm dân số được bao phủ sau khi khôi phục
         "coverage_restored_percent_of_outage": float(coverage_restored_percent_of_outage), # phần trăm dân số mất sóng được khôi phục
+        "coverage_after_restoration_percent": float(coverage_after_restoration_percent), # phần trăm dân số được bao phủ sau khi khôi phục
         "failed_union_population": float(failed_union_pop), # dân số trong vùng phủ của các trạm BTS bị hỏng
         "population_restored_by_cows": float(cow_union_pop_in_outage), # dân số được khôi phục bởi các COW
         "population_restored_by_power": float(power_union_pop_in_outage), # dân số được khôi phục bởi các nguồn điện di động
@@ -655,7 +706,7 @@ def main_compute_all(method="MILP_GUROBI"):
     out_json = SUMMARY_DIR / f"coverage_report_{method.lower()}.json"
     with open(out_json, "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)
-    logging.info(f"Wrote coverage summary: {out_json}")
+    logging.info(f"Wrote coverage summary_A: {out_json}")
 
     return summary
 

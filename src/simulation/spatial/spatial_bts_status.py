@@ -34,10 +34,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 BOUNDARY_PATH = PROJECT_ROOT / "data/cleaned/hue_boundary_clean.geojson"
 FLOOD_RASTER  = PROJECT_ROOT / "data/processed/flood/flood_depth_combined_clean.tif"
 
-ACTIVE_BTS_PATH = PROJECT_ROOT / "data/processed/damage_bts/active_bts.csv"
-FAILED_BTS_PATH = PROJECT_ROOT / "data/processed/damage_bts/failed_bts.csv"
+ACTIVE_BTS_PATH = PROJECT_ROOT / "data/processed/damage_bts/active_bts_B.csv"
+FAILED_BTS_PATH = PROJECT_ROOT / "data/processed/damage_bts/failed_bts_B.csv"
 
-OUTPUT_DIR = PROJECT_ROOT / "outputs/simulation/spatial"
+OUTPUT_DIR = PROJECT_ROOT / "outputs/simulation_B/spatial"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 PNG_OUTPUT  = OUTPUT_DIR / "bts_status.png"

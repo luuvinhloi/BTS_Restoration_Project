@@ -30,7 +30,7 @@ DEM_PATH = CLEAN_DIR / "elev_hue_clean.tif"
 WATER_PATH = CLEAN_DIR / "water_hue_clean.geojson"
 BOUNDARY_PATH = CLEAN_DIR / "hue_boundary_clean.geojson"
 
-FLOOD_LEVELS = [0.0, 0.2, 0.5, 1.0, 2.0]
+FLOOD_LEVELS = [0.0, 0.2, 0.5, 1.0, 2.0] # meters
 FLOOD_PERCENT = [0.2, 0.4, 0.2, 0.1, 0.1]
 
 

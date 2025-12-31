@@ -28,9 +28,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 GRAPH_PATH    = PROJECT_ROOT / "data/processed/road/roads_flooded.graphml"
 BOUNDARY_PATH = PROJECT_ROOT / "data/cleaned/hue_boundary_clean.geojson"
-J_SITES_PATH  = PROJECT_ROOT / "data/processed/position_I_J/J_sites.csv"
+J_SITES_PATH  = PROJECT_ROOT / "data/processed/position_I_J/J_sites_B.csv"
 
-OUTPUT_ROOT = PROJECT_ROOT / "outputs/simulation/spatial/routes"
+OUTPUT_ROOT = PROJECT_ROOT / "outputs/simulation_B/spatial/routes"
 OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
 
 METHODS = {
@@ -42,17 +42,17 @@ METHODS = {
         "out": OUTPUT_ROOT / "milp"
     },
     "GA_PSO": {
-        "cow": PROJECT_ROOT / "outputs/results_ga_pso/solution_cow_assignments.csv",
-        "power": PROJECT_ROOT / "outputs/results_ga_pso/solution_power_assignments.csv",
-        "cow_lookup": PROJECT_ROOT / "data/processed/travel_cost/cow_to_J_sites.csv",
-        "power_lookup": PROJECT_ROOT / "data/processed/travel_cost/backup_to_failed_bts.csv",
+        "cow": PROJECT_ROOT / "outputs/results_ga_pso_B/solution_cow_assignments.csv",
+        "power": PROJECT_ROOT / "outputs/results_ga_pso_B/solution_power_assignments.csv",
+        "cow_lookup": PROJECT_ROOT / "data/processed/travel_cost/cow_to_J_sites_B.csv",
+        "power_lookup": PROJECT_ROOT / "data/processed/travel_cost/backup_to_failed_bts_B.csv",
         "out": OUTPUT_ROOT / "ga_pso"
     },
     "MILP_GA_PSO": {
-        "cow": PROJECT_ROOT / "outputs/results_hybrid/solution_cow_assignments.csv",
-        "power": PROJECT_ROOT / "outputs/results_hybrid/solution_power_assignments.csv",
-        "cow_lookup": PROJECT_ROOT / "data/processed/travel_cost/cow_to_J_sites.csv",
-        "power_lookup": PROJECT_ROOT / "data/processed/travel_cost/backup_to_failed_bts.csv",
+        "cow": PROJECT_ROOT / "outputs/results_hybrid_B/solution_cow_assignments.csv",
+        "power": PROJECT_ROOT / "outputs/results_hybrid_B/solution_power_assignments.csv",
+        "cow_lookup": PROJECT_ROOT / "data/processed/travel_cost/cow_to_J_sites_B.csv",
+        "power_lookup": PROJECT_ROOT / "data/processed/travel_cost/backup_to_failed_bts_B.csv",
         "out": OUTPUT_ROOT / "hybrid"
     }
 }

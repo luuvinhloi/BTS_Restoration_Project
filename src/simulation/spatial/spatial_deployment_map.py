@@ -36,12 +36,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 BOUNDARY_PATH = PROJECT_ROOT / "data/cleaned/hue_boundary_clean.geojson"
 FLOOD_RASTER  = PROJECT_ROOT / "data/processed/flood/flood_depth_combined_clean.tif"
 
-ACTIVE_BTS_PATH  = PROJECT_ROOT / "data/processed/damage_bts/active_bts.csv"
-FAILED_BTS_PATH  = PROJECT_ROOT / "data/processed/damage_bts/failed_bts.csv"
-J_SITES_PATH     = PROJECT_ROOT / "data/processed/position_I_J/J_sites.csv"
+ACTIVE_BTS_PATH  = PROJECT_ROOT / "data/processed/damage_bts/active_bts_B.csv"
+FAILED_BTS_PATH  = PROJECT_ROOT / "data/processed/damage_bts/failed_bts_B.csv"
+J_SITES_PATH     = PROJECT_ROOT / "data/processed/position_I_J/J_sites_B.csv"
 COW_DATASET_PATH = PROJECT_ROOT / "data/processed/cow/cow_dataset.csv"
 
-OUTPUT_ROOT = PROJECT_ROOT / "outputs/simulation/spatial"
+OUTPUT_ROOT = PROJECT_ROOT / "outputs/simulation_B/spatial"
 OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
 
 # METHOD CONFIG
@@ -52,13 +52,13 @@ METHODS = {
         "out": OUTPUT_ROOT / "milp"
     },
     "GA_PSO": {
-        "cow": PROJECT_ROOT / "outputs/results_ga_pso/solution_cow_assignments.csv",
-        "power": PROJECT_ROOT / "outputs/results_ga_pso/solution_power_assignments.csv",
+        "cow": PROJECT_ROOT / "outputs/results_ga_pso_B/solution_cow_assignments.csv",
+        "power": PROJECT_ROOT / "outputs/results_ga_pso_B/solution_power_assignments.csv",
         "out": OUTPUT_ROOT / "ga_pso"
     },
     "MILP_GA_PSO": {
-        "cow": PROJECT_ROOT / "outputs/results_hybrid/solution_cow_assignments.csv",
-        "power": PROJECT_ROOT / "outputs/results_hybrid/solution_power_assignments.csv",
+        "cow": PROJECT_ROOT / "outputs/results_hybrid_B/solution_cow_assignments.csv",
+        "power": PROJECT_ROOT / "outputs/results_hybrid_B/solution_power_assignments.csv",
         "out": OUTPUT_ROOT / "hybrid"
     }
 }
@@ -336,20 +336,42 @@ def run_deployment_map(method_name, cow_path, output_dir):
         lat = r.geometry.y
         lon = r.geometry.x
 
+        popup_html = f"""
+        <div style="font-size:13px;">
+            <b>COW ID:</b> {r.get('cow_id', 'N/A')}<br>
+            <b>Deployed J site:</b> {r.get('site_id', 'N/A')}<br>
+            <b>Coverage radius:</b> {r.get('coverage_radius_m', 'N/A')} m<br>
+            <b>Deployment time:</b> {r.get('travel_time_hr', 'N/A')} h<br>
+            <b>Deployment cost:</b> {r.get('travel_cost_vnd', 'N/A')} VND
+        </div>
+        """
+
         folium.Marker(
             location=[lat, lon],
-            icon=folium.Icon(color="green", icon="signal")
+            icon=folium.Icon(color="green", icon="signal"),
+            popup=folium.Popup(popup_html, max_width=300)
         ).add_to(fg_cow)
 
+        # Coverage circle (no popup to avoid duplicate)
         folium.Circle(
             location=[lat, lon],
-            radius=r.coverage_radius_m,
+            radius=float(r.coverage_radius_m),
             color=COLOR_COW,
+            weight=1,
+            opacity=0.7,
             fill=True,
             fill_opacity=0.15
         ).add_to(fg_cow)
 
     for _, r in j_sites.iterrows():
+        popup_html = f"""
+        <div style="font-size:13px;">
+            <b>J Site ID:</b> {r.get('site_id', 'N/A')}<br>
+            <b>Latitude:</b> {r.latitude:.6f}<br>
+            <b>Longitude:</b> {r.longitude:.6f}
+        </div>
+        """
+
         folium.Marker(
             location=[r.latitude, r.longitude],
             icon=folium.DivIcon(
@@ -360,7 +382,8 @@ def run_deployment_map(method_name, cow_path, output_dir):
                     text-shadow:0 0 2px white;
                 ">★</div>
                 """
-            )
+            ),
+            popup=folium.Popup(popup_html, max_width=250)
         ).add_to(fg_j)
 
     for fg in [fg_failed, fg_powered, fg_cow, fg_j]:

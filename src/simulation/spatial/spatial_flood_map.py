@@ -29,7 +29,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 BOUNDARY_PATH = PROJECT_ROOT / "data/cleaned/hue_boundary_clean.geojson"
 FLOOD_RASTER  = PROJECT_ROOT / "data/processed/flood/flood_depth_combined_clean.tif"
 
-OUTPUT_DIR = PROJECT_ROOT / "outputs/simulation/spatial"
+OUTPUT_DIR = PROJECT_ROOT / "outputs/simulation_B/spatial"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 PNG_OUTPUT  = OUTPUT_DIR / "flood_map.png"
