@@ -18,9 +18,7 @@ from shapely.geometry import shape
 from shapely.ops import unary_union
 from collections import deque
 
-# ============================================================
 # CONFIG
-# ============================================================
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 OUTPUT_DIR = PROJECT_ROOT / "data" / "processed" / "flood"
@@ -33,21 +31,15 @@ BOUNDARY_PATH = CLEAN_DIR / "hue_boundary_clean.geojson"
 FLOOD_LEVELS = [0.0, 0.2, 0.5, 1.0, 2.0] # meters
 FLOOD_PERCENT = [0.2, 0.4, 0.2, 0.1, 0.1]
 
-
-# ============================================================
 # HELPERS
-# ============================================================
-
 def ensure_dir(path):
     os.makedirs(path, exist_ok=True)
-
 
 def load_dem_clipped(dem_src, boundary_gdf):
     """Clip DEM by boundary polygon."""
     geom = [boundary_gdf.unary_union]
     arr, transform = mask(dem_src, geom, crop=True)
     return arr[0], transform
-
 
 def rasterize_water(shape_hw, transform, water_gdf):
     """Rasterize water polygons -> DEM grid."""
@@ -63,7 +55,6 @@ def rasterize_water(shape_hw, transform, water_gdf):
         fill=0,
         dtype=np.uint8
     )
-
 
 def hydrologic_flood_fill(dem_array, water_mask):
     """
@@ -121,7 +112,6 @@ def allocate_flood(dem_array, floodable_mask):
     out[mask_bool] = out_mask
     return out.astype(np.float32)
 
-
 def save_raster(path, array, ref, transform):
     """Write GeoTIFF safely."""
     profile = ref.meta.copy()
@@ -139,7 +129,6 @@ def save_raster(path, array, ref, transform):
 
     with rasterio.open(path, "w", **profile) as dst:
         dst.write(array, 1)
-
 
 def raster_to_polygon(raster_array, transform, crs):
     mask = raster_array > 0
@@ -175,11 +164,7 @@ def optimize_polygon(gdf):
 
     return gpd.GeoDataFrame(cleaned, crs=gdf.crs)
 
-
-# ============================================================
-# CLEAN OUTPUT
-# ============================================================
-
+# CLEAN OUTPUTS
 def clean_outputs(boundary_gdf, transform, ref_ds):
     """
     Clean flood_depth_combined_B.* outputs:
@@ -194,9 +179,7 @@ def clean_outputs(boundary_gdf, transform, ref_ds):
     polygon_path = OUTPUT_DIR / "flood_area_combined.geojson"
     polygon_clean = OUTPUT_DIR / "flood_area_combined_clean.geojson"
 
-    # ---------------------------
     # CLEAN RASTER
-    # ---------------------------
     with rasterio.open(raster_path) as src:
         arr = src.read(1)
         meta = src.meta.copy()
@@ -218,9 +201,7 @@ def clean_outputs(boundary_gdf, transform, ref_ds):
 
     print("[CLEAN] Saved:", raster_clean)
 
-    # ---------------------------
     # CLEAN POLYGON
-    # ---------------------------
     if polygon_path.exists():
         poly = gpd.read_file(polygon_path)
         boundary = boundary_gdf
@@ -237,10 +218,7 @@ def clean_outputs(boundary_gdf, transform, ref_ds):
         print("[WARNING] polygon missing, skip clean.")
 
 
-# ============================================================
 # MAIN WORKFLOW
-# ============================================================
-
 def main():
     ensure_dir(OUTPUT_DIR)
 
@@ -286,7 +264,6 @@ def main():
         clean_outputs(boundary_gdf, dem_transform, dem_src)
 
     print("\n=== Hydrologic Flood Simulation B COMPLETE ===\n")
-
 
 if __name__ == "__main__":
     main()
